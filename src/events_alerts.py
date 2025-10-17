@@ -45,6 +45,7 @@ INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').spli
 
 COMPANY_NAME = config('COMPANY_NAME', default='Company')
 COMPANY_LOGO = MEDIA_DIR / config('COMPANY_LOGO', default='')
+ST_COMPANY_LOGO = MEDIA_DIR / config('ST_COMPANY_LOGO', default='')
 
 LOG_FILE = LOGS_DIR / config('LOG_FILE', default='events_alerts.log')
 LOG_MAX_BYTES = int(config('LOG_MAX_BYTES', default=10_485_760))  # 10MB
@@ -79,21 +80,24 @@ logger.addHandler(console_handler)
 # -----------------------------
 # Image Handling
 # -----------------------------
-def get_logo_for_email():
+def load_logo(logo_path):
     """
-    Load company logo file for email attachment.
+    Load logo file for email attachment.
     Returns tuple of (file_data, mime_type, filename) or (None, None, None) if not found.
+
+    Args:
+        logo_path: Path object pointing to the logo file
     """
-    if not COMPANY_LOGO.exists():
-        logger.warning(f"Company logo not found at: {COMPANY_LOGO}")
+    if not logo_path.exists():
+        logger.warning(f"Logo not found at: {logo_path}")
         return None, None, None
 
     try:
-        with open(COMPANY_LOGO, 'rb') as f:
+        with open(logo_path, 'rb') as f:
             logo_data = f.read()
 
         # Determine MIME type from extension
-        ext = COMPANY_LOGO.suffix.lower()
+        ext = logo_path.suffix.lower()
         mime_types = {
             '.png': 'image/png',
             '.jpg': 'image/jpeg',
@@ -103,10 +107,10 @@ def get_logo_for_email():
         }
         mime_type = mime_types.get(ext, 'image/png')
 
-        return logo_data, mime_type, COMPANY_LOGO.name
+        return logo_data, mime_type, logo_path.name
 
     except Exception as e:
-        logger.error(f"Failed to load logo: {e}")
+        logger.error(f"Failed to load logo from {logo_path}: {e}")
         return None, None, None
 
 # -----------------------------
@@ -156,11 +160,17 @@ Events:
     text += f"\n---\nThis is an automated report from {COMPANY_NAME}.\nIf you have questions about this report, please contact data@prominencemaritime.com."
     return text
 
-def make_html(df, run_time, has_logo=False):
+def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
     """Generate HTML email with results table"""
 
-    # Use CID reference if logo is attached
-    logo_html = f'<img src="cid:company_logo" alt="{COMPANY_NAME} logo" style="max-height:60px; margin-bottom:10px;">' if has_logo else ''
+    # Build logo HTML for both logos
+    logos_html = ''
+    if has_company_logo:
+        logos_html += f'<img src="cid:company_logo" alt="{COMPANY_NAME} logo" style="max-height:60px;">'
+    if has_company_logo and has_st_logo:# and 1 == 0:
+        logos_html += '<span style="font-size:30px; font-weight:bold; color:#2EA9DE; margin:0 15px; vertical-align:middle;">&amp;</span>'
+    if has_st_logo:
+        logos_html += f'<img src="cid:st_company_logo" alt="ST Company logo" style="max-height:60px;">'
 
     # Header section
     html = f"""<!DOCTYPE html>
@@ -177,7 +187,7 @@ def make_html(df, run_time, has_logo=False):
             padding: 20px;
         }}
         .header {{
-            border-bottom: 3px solid #0066cc;
+            border-bottom: 3px solid #2EA9DE;
             padding-bottom: 15px;
             margin-bottom: 25px;
         }}
@@ -187,7 +197,7 @@ def make_html(df, run_time, has_logo=False):
             gap: 15px;
         }}
         h1 {{
-            color: #0066cc;
+            color: #2EA9DE;
             margin: 0;
             font-size: 24px;
         }}
@@ -208,7 +218,7 @@ def make_html(df, run_time, has_logo=False):
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
         thead {{
-            background-color: #0066cc;
+            background-color: #2EA9DE;
             color: white;
         }}
         th {{
@@ -244,7 +254,7 @@ def make_html(df, run_time, has_logo=False):
         }}
         .count-badge {{
             display: inline-block;
-            background-color: #28a745;
+            background-color: #2EA9DE;
             color: white;
             padding: 4px 10px;
             border-radius: 12px;
@@ -256,7 +266,7 @@ def make_html(df, run_time, has_logo=False):
 <body>
     <div class="header">
         <div class="logo">
-            {logo_html}
+            {logos_html}
             <h1>Permit Events</h1>
         </div>
     </div>
@@ -345,15 +355,22 @@ def send_email(subject, plain_text, html_content, recipients):
     part_html = MIMEText(html_content, 'html', 'utf-8')
     msg_alternative.attach(part_html)
 
-    # Attach logo as embedded image with CID
-    logo_data, mime_type, filename = get_logo_for_email()
-    if logo_data:
-        # Parse main type and subtype (e.g., 'image/png' -> 'image', 'png')
-        maintype, subtype = mime_type.split('/')
-
-        img = MIMEImage(logo_data, _subtype=subtype)
+    # Attach company logo as embedded image with CID
+    company_logo_data, company_mime_type, company_filename = load_logo(COMPANY_LOGO)
+    if company_logo_data:
+        maintype, subtype = company_mime_type.split('/')
+        img = MIMEImage(company_logo_data, _subtype=subtype)
         img.add_header('Content-ID', '<company_logo>')
-        img.add_header('Content-Disposition', 'inline', filename=filename)
+        img.add_header('Content-Disposition', 'inline', filename=company_filename)
+        msg.attach(img)
+
+    # Attach ST company logo as embedded image with CID
+    st_logo_data, st_mime_type, st_filename = load_logo(ST_COMPANY_LOGO)
+    if st_logo_data:
+        maintype, subtype = st_mime_type.split('/')
+        img = MIMEImage(st_logo_data, _subtype=subtype)
+        img.add_header('Content-ID', '<st_company_logo>')
+        img.add_header('Content-Disposition', 'inline', filename=st_filename)
         msg.attach(img)
 
     # Connect and send
@@ -421,11 +438,13 @@ def main():
             # Generate email content
             subject = make_subject(len(df))
             plain_text = make_plain_text(df, run_time)
-            
-            # Check if logo exists for HTML
-            logo_data, _, _ = get_logo_for_email()
-            has_logo = logo_data is not None
-            html_content = make_html(df, run_time, has_logo=has_logo)
+
+            # Check if logos exist for HTML
+            company_logo_data, _, _ = load_logo(COMPANY_LOGO)
+            st_logo_data, _, _ = load_logo(ST_COMPANY_LOGO)
+            has_company_logo = company_logo_data is not None
+            has_st_logo = st_logo_data is not None
+            html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
             
             # Send email
             logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
