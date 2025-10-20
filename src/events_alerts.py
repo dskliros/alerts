@@ -166,11 +166,11 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
     # Build logo HTML for both logos
     logos_html = ''
     if has_company_logo:
-        logos_html += f'<img src="cid:company_logo" alt="{COMPANY_NAME} logo" style="max-height:60px;">'
-    if has_company_logo and has_st_logo:# and 1 == 0:
+        logos_html += f'<img src="cid:company_logo" alt="{COMPANY_NAME} logo" style="max-height:25px;">'
+    if has_company_logo and has_st_logo and 1 == 0:
         logos_html += '<span style="font-size:30px; font-weight:bold; color:#2EA9DE; margin:0 15px; vertical-align:middle;">&amp;</span>'
     if has_st_logo:
-        logos_html += f'<img src="cid:st_company_logo" alt="ST Company logo" style="max-height:60px;">'
+        logos_html += f'<img src="cid:st_company_logo" alt="ST Company logo" style="max-height:22px;">'
 
     # Header section
     html = f"""<!DOCTYPE html>
@@ -218,7 +218,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
         thead {{
-            background-color: #2EA9DE;
+            background-color: #0B4877;
             color: white;
         }}
         th {{
@@ -429,7 +429,7 @@ def main():
                 }
             )
             
-            logger.info(f"Query executed successfully. Rows returned: {len(df)}")
+            logger.info(f"Query executed successfully.")
             
             # Format created_at for display
             if not df.empty:
@@ -446,11 +446,15 @@ def main():
             has_st_logo = st_logo_data is not None
             html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
             
-            # Send email
-            logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
-            send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
-            
-            logger.info("✓ Email sent successfully")
+            if not df.empty:
+                # Send email
+                logger.info(f"{len(df)} events found.")
+                logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
+                send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
+                logger.info("✓ Email sent successfully")
+            else:
+                # Don't send email
+                logger.info("No email sent: no event matching specified criteria found in this time period.")
             
     except Exception as e:
         logger.exception(f"Error during execution: {e}")
