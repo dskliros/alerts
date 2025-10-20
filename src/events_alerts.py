@@ -19,6 +19,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
+import pymsteams
 
 # -----------------------------
 # Project Structure
@@ -42,6 +43,10 @@ SMTP_USER = config('SMTP_USER')
 SMTP_PASS = config('SMTP_PASS')
 
 INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
+
+TEAMS_WEBHOOK_URL = config('TEAMS_WEBHOOK_URL', default='')
+ENABLE_TEAMS_ALERTS = config('ENABLE_TEAMS_ALERTS', default=False, cast=bool)
+ENABLE_EMAIL_ALERTS = config('ENABLE_EMAIL_ALERTS', default=True, cast=bool)
 
 COMPANY_NAME = config('COMPANY_NAME', default='Company')
 COMPANY_LOGO = MEDIA_DIR / config('COMPANY_LOGO', default='')
@@ -124,6 +129,76 @@ def load_sql_query(query_file='EventHotWork.sql'):
 
     with open(query_path, 'r', encoding='utf-8') as f:
         return f.read().strip()
+
+# -----------------------------
+# Teams Message Function
+# -----------------------------
+def send_teams_message(df, run_time):
+    """Send formatted message to Microsoft Teams channel"""
+    if not TEAMS_WEBHOOK_URL:
+        logger.warning("Teams webhook URL not configured. Skipping Teams notification.")
+        return
+
+    try:
+        # Create Teams message card
+        teams_message = pymsteams.connectorcard(TEAMS_WEBHOOK_URL)
+
+        # Set title based on results
+        if df.empty:
+            teams_message.title(f"AlertDev | No Events Found")
+            teams_message.color("FFC107")  # Yellow/warning color
+            teams_message.text("No events matching criteria were found in the last {} days.".format(EVENT_LOOKBACK_DAYS))
+        else:
+            teams_message.title(f"AlertDev | {len(df)} Permit Event{'s' if len(df) != 1 else ''} Found")
+            teams_message.color("2EA9DE")  # Light blue brand color
+
+            # Create summary section
+            summary_section = pymsteams.cardsection()
+            summary_section.activityTitle("Report Summary")
+            summary_section.activitySubtitle(run_time.strftime('%A, %B %d, %Y at %H:%M %Z'))
+            summary_section.addFact("Type", "Permit")
+            summary_section.addFact("Period", f"Last {EVENT_LOOKBACK_DAYS} days")
+            summary_section.addFact("Frequency", f"{SCHEDULE_FREQUENCY} hours")
+            summary_section.addFact("Results", f"**{len(df)}** event{'s' if len(df) != 1 else ''}")
+            teams_message.addSection(summary_section)
+
+            # Create events section
+            events_section = pymsteams.cardsection()
+            events_section.activityTitle("Event Details")
+
+            # Add events (limit to first 10 to avoid message size limits)
+            event_text = ""
+            for idx, row in df.head(10).iterrows():
+                event_text += f"**{idx + 1}. {row['name']}**  \n"
+                event_text += f"Created: {row['created_at']}  \n\n"
+
+            if len(df) > 10:
+                event_text += f"_...and {len(df) - 10} more event(s)_"
+
+            events_section.text(event_text)
+            teams_message.addSection(events_section)
+
+        # Add footer
+        footer_section = pymsteams.cardsection()
+        footer_section.text(f"*Automated report from {COMPANY_NAME}*")
+        teams_message.addSection(footer_section)
+
+        # Send the message and capture response
+        logger.info(f"Sending to webhook: {TEAMS_WEBHOOK_URL[:50]}...")  # Log first 50 chars only
+        response = teams_message.send()
+
+        # Log response details
+        logger.info(f"Teams API response: {response}")
+
+        if response:
+            logger.info(f"✓ Teams message sent successfully to webhook (HTTP {response}, status code {teams_message.last_http_response.status_code})")
+        else:
+            logger.warning(f"⚠ Teams returned success but no response code - message may not have been delivered")
+
+    except Exception as e:
+        logger.exception(f"✗ Failed to send Teams message: {e}")
+        raise
+
 
 # -----------------------------
 # Email Template Functions
@@ -447,14 +522,32 @@ def main():
             html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
             
             if not df.empty:
-                # Send email
                 logger.info(f"{len(df)} events found.")
-                logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
-                send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
-                logger.info("✓ Email sent successfully")
+
+                # Send email if enabled
+                if ENABLE_EMAIL_ALERTS:
+                    logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
+                    send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
+                    logger.info("✓ Email sent successfully")
+                else:
+                    # Don't send email
+                    logger.info("Email alerts disabled: no email sent.")
+
+                # Send Teams message if enables
+                if ENABLE_TEAMS_ALERTS:
+                    logger.info("Preparing to send Teams notification...")
+                    send_teams_message(df, run_time)
+                    logger.info("✓ Teams message sent successfully.")
+                else:
+                    logger.info("Teams alerts disabled: no Teams notification sent.")
+
             else:
-                # Don't send email
-                logger.info("No email sent: no event matching specified criteria found in this time period.")
+                logger.info("No events found matching specified criteria.")
+                # Optional: send "no results notification to Teams"
+                # if ENABLE_TEAMS_ALERTS:
+                #   send_teams_message(df, run_time)
+                #          
+
             
     except Exception as e:
         logger.exception(f"Error during execution: {e}")
