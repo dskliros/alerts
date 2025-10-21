@@ -20,6 +20,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
 import pymsteams
+from typing import Union, List
 
 # -----------------------------
 # Project Structure
@@ -43,6 +44,8 @@ SMTP_USER = config('SMTP_USER')
 SMTP_PASS = config('SMTP_PASS')
 
 INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
+ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False)
+SPECIAL_TEAMS_EMAIL = config('SPECIAL_TEAMS_EMAIL', '').strip()
 
 TEAMS_WEBHOOK_URL = config('TEAMS_WEBHOOK_URL', default='')
 ENABLE_TEAMS_ALERTS = config('ENABLE_TEAMS_ALERTS', default=False, cast=bool)
@@ -402,7 +405,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
 # -----------------------------
 # Email Sending Function
 # -----------------------------
-def send_email(subject, plain_text, html_content, recipients):
+def send_email(subject: str, plain_text: str, html_content: str, recipients: list[str]) -> None:
     """Send email with both plain text and HTML versions, and embedded logo"""
     if not recipients:
         logger.warning("No recipients configured. Skipping email send.")
@@ -464,7 +467,7 @@ def send_email(subject, plain_text, html_content, recipients):
                 smtp.login(SMTP_USER, SMTP_PASS)
                 smtp.send_message(msg)
 
-        logger.info(f"✓ Email sent successfully to {len(recipients)} recipient(s): {', '.join(recipients)}")
+        logger.info(f"✓ Email sent successfully to {len(recipients)} recipient{'' if len(recipients) == 1 else 's'}: {', '.join(recipients)}")
     except Exception as e:
         logger.exception(f"✗ Failed to send email: {e}")
         raise
@@ -520,7 +523,9 @@ def main():
             has_company_logo = company_logo_data is not None
             has_st_logo = st_logo_data is not None
             html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+            trimmed_html_content = make_html(df, run_time, has_company_logo=None, has_st_logo=None)
             
+            # Only sent notifications when events have been found
             if not df.empty:
                 logger.info(f"{len(df)} events found.")
 
@@ -532,6 +537,13 @@ def main():
                 else:
                     # Don't send email
                     logger.info("Email alerts disabled: no email sent.")
+                if ENABLE_SPECIAL_TEAMS_EMAIL_ALERT:
+                    logger.info(f"Preparing to send Email to Teams Alert Channel: {SPECIAL_TEAMS_EMAIL}")
+                    special_email = [SPECIAL_TEAMS_EMAIL]
+                    send_email(subject, plain_text, trimmed_html_content, special_email)
+                    logger.info("✓ Email sent to Teams 'Alerts' channel successfully")
+                else:
+                    logger.info("Special Teams email alerts disabled: no channel email sent")
 
                 # Send Teams message if enables
                 if ENABLE_TEAMS_ALERTS:
