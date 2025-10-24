@@ -1,5 +1,6 @@
 SELECT 
-    name,
+    id,
+    name AS event_name,
     created_at
 FROM 
     events

@@ -3,7 +3,7 @@
 events_alerts.py
 - Connects to PostgreSQL via db_utils
 - Queries events matching specific criteria
-- Sends results as professional HTML email
+- Sends results as an HTML email
 - Logs to rotating logfile
 """
 
@@ -44,7 +44,7 @@ SMTP_USER = config('SMTP_USER')
 SMTP_PASS = config('SMTP_PASS')
 
 INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
-ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False)
+ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False, cast=bool)
 SPECIAL_TEAMS_EMAIL = config('SPECIAL_TEAMS_EMAIL', '').strip()
 
 TEAMS_WEBHOOK_URL = config('TEAMS_WEBHOOK_URL', default='')
@@ -62,6 +62,7 @@ LOG_BACKUP_COUNT = int(config('LOG_BACKUP_COUNT', default=5))
 # Query configuration (can be moved to .env if needed)
 EVENT_TYPE_ID = int(config('EVENT_TYPE_ID', default=18))
 EVENT_NAME_FILTER = config('EVENT_NAME_FILTER', default='hot')
+EVENT_EXCLUDE = config('EVENT_EXCLUDE', default='vessel')
 EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
 
 # Automation Scheduler Frequency (hours)
@@ -69,6 +70,17 @@ SCHEDULE_FREQUENCY = int(config('SCHEDULE_FREQUENCY', default=1))
 
 # Timezone for scheduling & timestamps (Greece)
 LOCAL_TZ = ZoneInfo('Europe/Athens')
+
+# Handle gracefully if required config values are missing
+required_configs = {
+    'SMTP_HOST': SMTP_HOST,
+    'SMTP_USER': SMTP_USER,
+    'SMTP_PASS': SMTP_PASS,
+}
+
+for key, value in required_configs.items():
+    if not value:
+        raise ValueError(f"Required configuration '{key}' is missing from .env file")
 
 # -----------------------------
 # Logging Setup
@@ -172,7 +184,7 @@ def send_teams_message(df, run_time):
             # Add events (limit to first 10 to avoid message size limits)
             event_text = ""
             for idx, row in df.head(10).iterrows():
-                event_text += f"**{idx + 1}. {row['name']}**  \n"
+                event_text += f"**{idx + 1}. {row['event_name']}**  \n"
                 event_text += f"Created: {row['created_at']}  \n\n"
 
             if len(df) > 10:
@@ -187,7 +199,7 @@ def send_teams_message(df, run_time):
         teams_message.addSection(footer_section)
 
         # Send the message and capture response
-        logger.info(f"Sending to webhook: {TEAMS_WEBHOOK_URL[:50]}...")  # Log first 50 chars only
+        logger.info("Sending message to Teams webhook...")
         response = teams_message.send()
 
         # Log response details
@@ -206,206 +218,248 @@ def send_teams_message(df, run_time):
 # -----------------------------
 # Email Template Functions
 # -----------------------------
-def make_subject(event_count):
+def get_event_id_name(type_id: int, filename='get_events_name.sql') -> tuple:
+    """
+    Fetch event type name from event_types table for a given type_id.
+    Returns tuple of (event_id, event_name)
+    """
+    query_sql = load_sql_query(filename)
+    query = text(query_sql)
+    
+    with get_db_connection() as conn:
+        result = conn.execute(query, {"type_id": type_id}).fetchone()
+        if result:
+            return result[0] if len(result) > 0 else '', result[1] if len(result) > 1 else 'Unknown Event'
+        return '', 'Unknown Event'
+
+
+def make_subject(event_count, type_id: int = EVENT_TYPE_ID):
     """Generate email subject line"""
-    return f"AlertDev | {event_count} Permit Event{'s' if event_count != 1 else ''} Found"
+    event_id, event_name = get_event_id_name(type_id)
+    return f"AlertDev | {event_count} {event_name.title()} Event{'s' if event_count != 1 else ''} Found"
+
 
 def make_plain_text(df, run_time):
-    """Generate plain text version of email"""
+    """Generate plain text email dynamically based on available columns"""
+    header = f"""AlertDev | {run_time.strftime('%Y-%m-%d %H:%M %Z')}
+
+Found {len(df)} event(s) matching criteria.
+"""
+
     if df.empty:
-        return f"""AlertDev | {run_time.strftime('%Y-%m-%d %H:%M %Z')}
+        return header + f"\nNo results found.\n\n---\nAutomated report from {COMPANY_NAME}."
 
-No events matching criteria were found in the last {EVENT_LOOKBACK_DAYS} days.
+    text = header + "\nEvents:\n"
 
----
-This is an automated email from {COMPANY_NAME}.
-If you have questions about this report, please contact data@prominencemaritime.com.
-"""
-    
-    text = f"""AlertDev | {run_time.strftime('%Y-%m-%d %H:%M %Z')}
-
-Found {len(df)} event(s) matching events:
-- Type: 'Permit'
-- Last {EVENT_LOOKBACK_DAYS} days
-- Frequency: {SCHEDULE_FREQUENCY} hours
-
-Events:
-"""
     for idx, row in df.iterrows():
-        text += f"\n{idx + 1}. {row['name']}"
-        text += f"\n   Created: {row['created_at']}\n"
-    
-    text += f"\n---\nThis is an automated report from {COMPANY_NAME}.\nIf you have questions about this report, please contact data@prominencemaritime.com."
+        text += f"\n{idx + 1}."
+        # Add link if ID is available
+        if 'id' in df.columns:
+            event_url = f"https://prominence.orca.tools/events/{row['id']}"
+            text += f"\n   Link: {event_url}"
+        for col in df.columns:
+            text += f"\n   {col}: {row[col]}"
+        text += "\n"
+
+    text += f"\n---\nThis is an automated message from {COMPANY_NAME}.\nIf you have questions about this report, please contact data@prominencemaritime.com."
     return text
 
+
 def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
-    """Generate HTML email with results table"""
+    """Generate a rich, dynamically formatted HTML email for events."""
+    event_id, event_name = get_event_id_name(type_id=EVENT_TYPE_ID)
 
-    # Build logo HTML for both logos
-    logos_html = ''
+    logos_html = ""
     if has_company_logo:
-        logos_html += f'<img src="cid:company_logo" alt="{COMPANY_NAME} logo" style="max-height:25px;">'
-    if has_company_logo and has_st_logo and 1 == 0:
-        logos_html += '<span style="font-size:30px; font-weight:bold; color:#2EA9DE; margin:0 15px; vertical-align:middle;">&amp;</span>'
+        logos_html += f"""
+        <img src="cid:company_logo" alt="{COMPANY_NAME} logo"
+             style="max-height:50px; margin-right:15px; vertical-align:middle;">
+        """
     if has_st_logo:
-        logos_html += f'<img src="cid:st_company_logo" alt="ST Company logo" style="max-height:22px;">'
+        logos_html += f"""
+        <img src="cid:st_company_logo" alt="ST logo"
+             style="max-height:45px; vertical-align:middle;">
+        """
+    '''
+    logos_html = ""
+    if has_company_logo:
+        logos_html += f"""
+        <img src="cid:company_logo" alt="{COMPANY_NAME} logo"
+             style="max-height:28px; margin-right:15px; vertical-align:middle;">
+        """
+    if has_st_logo:
+        logos_html += f"""
+        <img src="cid:st_company_logo" alt="ST logo"
+             style="max-height:24px; vertical-align:middle;">
+        """
+    '''
 
-    # Header section
     html = f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        .header {{
-            border-bottom: 3px solid #2EA9DE;
-            padding-bottom: 15px;
-            margin-bottom: 25px;
-        }}
-        .logo {{
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }}
-        h1 {{
-            color: #2EA9DE;
-            margin: 0;
-            font-size: 24px;
-        }}
-        .metadata {{
-            background-color: #f5f5f5;
-            padding: 12px;
-            border-radius: 5px;
-            margin: 20px 0;
-            font-size: 14px;
-        }}
-        .metadata strong {{
-            color: #555;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        thead {{
-            background-color: #0B4877;
-            color: white;
-        }}
-        th {{
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.5px;
-        }}
-        td {{
-            padding: 12px;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        tbody tr:hover {{
-            background-color: #f9f9f9;
-        }}
-        tbody tr:last-child td {{
-            border-bottom: none;
-        }}
-        .no-results {{
-            background-color: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
-        }}
-        .footer {{
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-            font-size: 12px;
-            color: #666;
-        }}
-        .count-badge {{
-            display: inline-block;
-            background-color: #2EA9DE;
-            color: white;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 600;
-        }}
-    </style>
+<meta charset="UTF-8">
+<style>
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        background-color: #f9fafc;
+        color: #333;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+    }}
+    .container {{
+        max-width: 900px;
+        margin: 30px auto;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        overflow: hidden;
+        padding: 20px 40px;
+    }}
+    .header {{
+        background-color: #0B4877;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }}
+    .header h1 {{
+        margin: 0;
+        font-size: 22px;
+        font-weight: 600;
+    }}
+    .header p {{
+        margin: 0;
+        font-size: 14px;
+        color: #d7e7f5;
+    }}
+    .metadata {{
+        background-color: #f5f5f5;
+        padding: 12px;
+        border-radius: 5px;
+        margin: 20px 0;
+        font-size: 14px;
+    }}
+    .count-badge {{
+        display: inline-block;
+        background-color: #2EA9DE;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 14px;
+    }}
+    th {{
+        background-color: #0B4877;
+        color: white;
+        text-align: left;
+        padding: 10px;
+    }}
+    td {{
+        padding: 8px 10px;
+        border-bottom: 1px solid #e0e6ed;
+    }}
+    tr:nth-child(even) {{
+        background-color: #f5f8fb;
+    }}
+    tr:hover {{
+        background-color: #eef5fc;
+    }}
+    a {{
+        color: #2EA9DE;
+        text-decoration: none;
+    }}
+    a:hover {{
+        text-decoration: underline;
+    }}
+    .footer {{
+        font-size: 12px;
+        color: #888;
+        text-align: center;
+        padding: 10px;
+        border-top: 1px solid #eee;
+        margin-top: 20px;
+    }}
+</style>
 </head>
 <body>
+<div class="container">
     <div class="header">
-        <div class="logo">
-            {logos_html}
-            <h1>Permit Events</h1>
+        <div>{logos_html}</div>
+        <div style="text-align:right;">
+            <h1>{event_name} Alerts</h1>
+            <p>{run_time.strftime('%A, %d %B %Y %H:%M %Z')}</p>
         </div>
     </div>
-    
-    <div class="metadata">
-        <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
-        <strong>Query Criteria:</strong> Type: 'Permit', Last {EVENT_LOOKBACK_DAYS} days<br>
-        <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
-        <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
-    </div>
 """
-    
-    # Results section
+
+    # Table or "no results" message
     if df.empty:
         html += """
-    <div class="no-results">
-        <strong>No Results</strong><br>
-        No events matching the specified criteria were found in this time period.
-    </div>
-"""
+        <p style="margin-top:25px; font-size:15px;">
+            <strong>No events found for the current query.</strong>
+        </p>
+        """
     else:
-        # Convert DataFrame to HTML table with custom styling
-        html += """
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 60px;">#</th>
-                <th>Event Name</th>
-                <th style="width: 200px;">Created At</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
+        html += f"""
+        <div class="metadata">
+            <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
+            <strong>Query Criteria:</strong> Type ID: '{EVENT_TYPE_ID}', Last {EVENT_LOOKBACK_DAYS} days<br>
+            <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
+            <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
+        </div>
+        <table>
+            <thead><tr>"""
+        
+        for col in df.columns:
+            html += f"<th>{col.replace('_', ' ').title()}</th>"
+        
+        html += "</tr></thead><tbody>"
+
         for idx, row in df.iterrows():
-            html += f"""
-            <tr>
-                <td style="text-align: center; color: #888;">{idx + 1}</td>
-                <td><strong>{row['name']}</strong></td>
-                <td style="font-family: monospace; font-size: 13px;">{row['created_at']}</td>
-            </tr>
-"""
-        html += """
-        </tbody>
-    </table>
-"""
-    
-    # Footer
+            html += "<tr>"
+            for col in df.columns:
+                if col == 'event_name' and 'id' in df.columns:
+                    # Make event_name a clickable link
+                    event_url = f"https://prominence.orca.tools/events/{row['id']}"
+                    html += f"""<td>
+                        <strong>
+                            <a href="{event_url}" 
+                               style="color: #2EA9DE; text-decoration: none;"
+                               target="_blank">
+                                {row[col]}
+                            </a>
+                        </strong>
+                    </td>"""
+                else:
+                    html += f"<td>{row[col]}</td>"
+            html += "</tr>"
+
+        html += "</tbody></table>"
+
     html += f"""
     <div class="footer">
-        This is an automated email generated by {COMPANY_NAME}.<br>
-        If you have questions about this report, please contact data@prominencemaritime.com.<br>
+        This is an automated report generated by {COMPANY_NAME}.
     </div>
+</div>
 </body>
 </html>
 """
     return html
 
+
 # -----------------------------
 # Email Sending Function
 # -----------------------------
-def send_email(subject: str, plain_text: str, html_content: str, recipients: list[str]) -> None:
+def send_email(subject: str, plain_text: str, html_content: str, recipients: List[str]) -> None:
     """Send email with both plain text and HTML versions, and embedded logo"""
     if not recipients:
         logger.warning("No recipients configured. Skipping email send.")
@@ -472,6 +526,7 @@ def send_email(subject: str, plain_text: str, html_content: str, recipients: lis
         logger.exception(f"✗ Failed to send email: {e}")
         raise
 
+
 # -----------------------------
 # Main Logic
 # -----------------------------
@@ -495,7 +550,7 @@ def main():
             query = text(query_sql) 
 
             # Execute query
-            logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, name_filter='%{EVENT_NAME_FILTER}%', lookback_days={EVENT_LOOKBACK_DAYS}")
+            logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, name_filter='%{EVENT_NAME_FILTER}%', name_excluded='%{EVENT_EXCLUDE}%', lookback_days={EVENT_LOOKBACK_DAYS}")
             
             df = pd.read_sql_query(
                 query, 
@@ -503,11 +558,16 @@ def main():
                 params={
                     'type_id': EVENT_TYPE_ID,
                     'name_filter': f'%{EVENT_NAME_FILTER}%',
+                    'name_excluded': f'%{EVENT_EXCLUDE}%',
                     'lookback_days': EVENT_LOOKBACK_DAYS
                 }
             )
             
-            logger.info(f"Query executed successfully.")
+            logger.info(f"Query executed successfully. Found {len(df)} event(s).")
+            
+            # Validate that ID column exists for link generation
+            if not df.empty and 'id' not in df.columns:
+                logger.warning("Query result missing 'id' column - event links will not be generated")
             
             # Format created_at for display
             if not df.empty:
@@ -518,14 +578,12 @@ def main():
             plain_text = make_plain_text(df, run_time)
 
             # Check if logos exist for HTML
-            company_logo_data, _, _ = load_logo(COMPANY_LOGO)
-            st_logo_data, _, _ = load_logo(ST_COMPANY_LOGO)
-            has_company_logo = company_logo_data is not None
-            has_st_logo = st_logo_data is not None
+            has_company_logo = COMPANY_LOGO.exists()
+            has_st_logo = ST_COMPANY_LOGO.exists()
             html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-            trimmed_html_content = make_html(df, run_time, has_company_logo=None, has_st_logo=None)
+            trimmed_html_content = make_html(df, run_time, has_company_logo=False, has_st_logo=False)
             
-            # Only sent notifications when events have been found
+            # Only send notifications when events have been found
             if not df.empty:
                 logger.info(f"{len(df)} events found.")
 
@@ -533,23 +591,20 @@ def main():
                 if ENABLE_EMAIL_ALERTS:
                     logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
                     send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
-                    logger.info("✓ Email sent successfully")
                 else:
-                    # Don't send email
                     logger.info("Email alerts disabled: no email sent.")
+                
                 if ENABLE_SPECIAL_TEAMS_EMAIL_ALERT:
                     logger.info(f"Preparing to send Email to Teams Alert Channel: {SPECIAL_TEAMS_EMAIL}")
                     special_email = [SPECIAL_TEAMS_EMAIL]
                     send_email(subject, plain_text, trimmed_html_content, special_email)
-                    logger.info("✓ Email sent to Teams 'Alerts' channel successfully")
                 else:
                     logger.info("Special Teams email alerts disabled: no channel email sent")
 
-                # Send Teams message if enables
+                # Send Teams message if enabled
                 if ENABLE_TEAMS_ALERTS:
                     logger.info("Preparing to send Teams notification...")
                     send_teams_message(df, run_time)
-                    logger.info("✓ Teams message sent successfully.")
                 else:
                     logger.info("Teams alerts disabled: no Teams notification sent.")
 
@@ -557,8 +612,7 @@ def main():
                 logger.info("No events found matching specified criteria.")
                 # Optional: send "no results notification to Teams"
                 # if ENABLE_TEAMS_ALERTS:
-                #   send_teams_message(df, run_time)
-                #          
+                #     send_teams_message(df, run_time)
 
             
     except Exception as e:
@@ -572,8 +626,19 @@ def main():
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Events Alerts System')
+    parser.add_argument('--dry-run', action='store_true', help='Run without sending notifications')
+    args = parser.parse_args()
+    
+    if args.dry_run:
+        logger.info("DRY RUN MODE - No notifications will be sent")
+        ENABLE_EMAIL_ALERTS = False
+        ENABLE_TEAMS_ALERTS = False
+        ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = False
+    
     try:
         main()
     except Exception:
-        logger.exception(f"Exception occurred: {e}")
+        logger.exception("Unhandled exception occurred in main()")
         sys.exit(1)
