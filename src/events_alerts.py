@@ -412,7 +412,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         html += f"""
         <div class="metadata">
             <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
-            <strong>Query Criteria:</strong> Type ID: '{EVENT_TYPE_ID}', Last {EVENT_LOOKBACK_DAYS} days<br>
+            <strong>Query Criteria:</strong> Type ID: {EVENT_TYPE_ID}, Last {EVENT_LOOKBACK_DAYS} days<br>
             <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
             <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
         </div>
@@ -424,6 +424,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         
         html += "</tr></thead><tbody>"
 
+        event_ids = []
         for idx, row in df.iterrows():
             html += "<tr>"
             for col in df.columns:
@@ -439,6 +440,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
                             </a>
                         </strong>
                     </td>"""
+                    event_ids.append(row['id'])
                 else:
                     html += f"<td>{row[col]}</td>"
             html += "</tr>"
@@ -453,7 +455,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
 </body>
 </html>
 """
-    return html
+    return event_ids, html
 
 
 # -----------------------------

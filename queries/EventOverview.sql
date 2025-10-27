@@ -5,7 +5,7 @@ SELECT
 	e.id,
 	e.name AS event_name,
 	e.created_at,
-	et.name AS event_type_name
+	et.name AS event_type
 	--i.name AS importance_name
 FROM 
 	events e
