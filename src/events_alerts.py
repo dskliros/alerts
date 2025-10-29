@@ -5,6 +5,7 @@ events_alerts.py
 - Queries events matching specific criteria
 - Sends results as an HTML email
 - Logs to rotating logfile
+- Tracks sent event IDs to prevent duplicate notifications
 """
 
 from src.db_utils import get_db_connection
@@ -20,7 +21,8 @@ from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
 import pymsteams
-from typing import Union, List
+from typing import Union, List, Set
+import json
 
 # -----------------------------
 # Project Structure
@@ -32,8 +34,12 @@ LOGS_DIR = PROJECT_ROOT / 'logs'
 DATA_DIR = PROJECT_ROOT / 'data'
 MEDIA_DIR = PROJECT_ROOT / 'media'
 
-# Ensure logs directory exists
+# Ensure required directories exist
 LOGS_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
+
+# Sent events tracking file
+SENT_EVENTS_FILE = DATA_DIR / 'sent_events.json'
 
 # -----------------------------
 # Configuration from .env
@@ -96,6 +102,76 @@ logger.addHandler(handler)
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
+
+# -----------------------------
+# Sent Events Tracking
+# -----------------------------
+def load_sent_events() -> Set[int]:
+    """
+    Load the set of event IDs that have already been sent.
+    Returns an empty set if file doesn't exist or is corrupted.
+    """
+    if not SENT_EVENTS_FILE.exists():
+        logger.info(f"Sent events file not found at {SENT_EVENTS_FILE}. Starting with empty history.")
+        return set()
+    
+    try:
+        with open(SENT_EVENTS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # Convert to set of integers
+            sent_ids = set(int(event_id) for event_id in data.get('sent_event_ids', []))
+            logger.info(f"Loaded {len(sent_ids)} previously sent event IDs from {SENT_EVENTS_FILE}")
+            return sent_ids
+    except json.JSONDecodeError as e:
+        logger.error(f"Corrupted JSON in {SENT_EVENTS_FILE}: {e}. Starting with empty history.")
+        return set()
+    except Exception as e:
+        logger.error(f"Error loading sent events from {SENT_EVENTS_FILE}: {e}. Starting with empty history.")
+        return set()
+
+
+def save_sent_events(sent_ids: Set[int]) -> None:
+    """
+    Save the set of sent event IDs to JSON file.
+    Includes metadata about last update.
+    """
+    try:
+        data = {
+            'sent_event_ids': sorted(list(sent_ids)),  # Sort for readability
+            'last_updated': datetime.now(tz=LOCAL_TZ).isoformat(),
+            'total_count': len(sent_ids)
+        }
+        
+        with open(SENT_EVENTS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Saved {len(sent_ids)} event IDs to {SENT_EVENTS_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save sent events to {SENT_EVENTS_FILE}: {e}")
+        raise
+
+
+def filter_unsent_events(df: pd.DataFrame, sent_ids: Set[int]) -> pd.DataFrame:
+    """
+    Filter DataFrame to only include events that haven't been sent yet.
+    Returns a new DataFrame with only unsent events.
+    """
+    if df.empty:
+        return df
+    
+    if 'id' not in df.columns:
+        logger.warning("DataFrame missing 'id' column. Cannot filter sent events. Returning all events.")
+        return df
+    
+    # Filter out events that have already been sent
+    unsent_df = df[~df['id'].isin(sent_ids)].copy()
+    
+    filtered_count = len(df) - len(unsent_df)
+    if filtered_count > 0:
+        logger.info(f"Filtered out {filtered_count} previously sent event(s). {len(unsent_df)} new event(s) remain.")
+    
+    return unsent_df
+
 
 # -----------------------------
 # Image Handling
@@ -268,6 +344,9 @@ Found {len(df)} event(s) matching criteria.
 def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
     """Generate a rich, dynamically formatted HTML email for events."""
     event_id, event_name = get_event_id_name(type_id=EVENT_TYPE_ID)
+    
+    # Initialize event_ids to avoid NameError when df is empty
+    event_ids = []
 
     logos_html = ""
     if has_company_logo:
@@ -280,19 +359,6 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         <img src="cid:st_company_logo" alt="ST logo"
              style="max-height:45px; vertical-align:middle;">
         """
-    '''
-    logos_html = ""
-    if has_company_logo:
-        logos_html += f"""
-        <img src="cid:company_logo" alt="{COMPANY_NAME} logo"
-             style="max-height:28px; margin-right:15px; vertical-align:middle;">
-        """
-    if has_st_logo:
-        logos_html += f"""
-        <img src="cid:st_company_logo" alt="ST logo"
-             style="max-height:24px; vertical-align:middle;">
-        """
-    '''
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -424,7 +490,6 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         
         html += "</tr></thead><tbody>"
 
-        event_ids = []
         for idx, row in df.iterrows():
             html += "<tr>"
             for col in df.columns:
@@ -542,6 +607,9 @@ def main():
     logger.info(f"Current time (Europe/Athens): {run_time.isoformat()}")
     
     try:
+        # Load previously sent event IDs
+        sent_event_ids = load_sent_events()
+        
         # Connect to database
         logger.info("Establishing database connection...")
         with get_db_connection() as conn:
@@ -565,15 +633,30 @@ def main():
                 }
             )
             
-            logger.info(f"Query executed successfully. Found {len(df)} event(s).")
+            logger.info(f"Query executed successfully. Found {len(df)} event(s) from database.")
             
-            # Validate that ID column exists for link generation
+            # Validate that ID column exists for link generation and deduplication
             if not df.empty and 'id' not in df.columns:
-                logger.warning("Query result missing 'id' column - event links will not be generated")
+                logger.warning("Query result missing 'id' column - event links and deduplication will not work")
+            
+            # Filter out events that have already been sent
+            original_count = len(df)
+            df = filter_unsent_events(df, sent_event_ids)
             
             # Format created_at for display
             if not df.empty:
                 df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Check if we have new events to send
+            if df.empty:
+                if original_count > 0:
+                    logger.info(f"All {original_count} event(s) have been sent previously. No new events to notify.")
+                else:
+                    logger.info("No events found matching specified criteria.")
+                return  # Exit without sending notifications
+            
+            # We have new events - prepare notifications
+            logger.info(f"{len(df)} new event(s) to be sent.")
             
             # Generate email content
             subject = make_subject(len(df))
@@ -582,39 +665,53 @@ def main():
             # Check if logos exist for HTML
             has_company_logo = COMPANY_LOGO.exists()
             has_st_logo = ST_COMPANY_LOGO.exists()
-            html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-            trimmed_html_content = make_html(df, run_time, has_company_logo=False, has_st_logo=False)
+            event_ids, html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+            trimmed_event_ids, trimmed_html_content = make_html(df, run_time, has_company_logo=False, has_st_logo=False)
             
-            # Only send notifications when events have been found
-            if not df.empty:
-                logger.info(f"{len(df)} events found.")
-
-                # Send email if enabled
-                if ENABLE_EMAIL_ALERTS:
+            # Track if any notification was sent successfully
+            notifications_sent = False
+            
+            # Send email if enabled
+            if ENABLE_EMAIL_ALERTS:
+                try:
                     logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
                     send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
-                else:
-                    logger.info("Email alerts disabled: no email sent.")
-                
-                if ENABLE_SPECIAL_TEAMS_EMAIL_ALERT:
+                    notifications_sent = True
+                except Exception as e:
+                    logger.error(f"Email sending failed: {e}")
+            else:
+                logger.info("Email alerts disabled: no email sent.")
+            
+            # Send special Teams email if enabled
+            if ENABLE_SPECIAL_TEAMS_EMAIL_ALERT:
+                try:
                     logger.info(f"Preparing to send Email to Teams Alert Channel: {SPECIAL_TEAMS_EMAIL}")
                     special_email = [SPECIAL_TEAMS_EMAIL]
                     send_email(subject, plain_text, trimmed_html_content, special_email)
-                else:
-                    logger.info("Special Teams email alerts disabled: no channel email sent")
+                    notifications_sent = True
+                except Exception as e:
+                    logger.error(f"Special Teams email sending failed: {e}")
+            else:
+                logger.info("Special Teams email alerts disabled: no channel email sent")
 
-                # Send Teams message if enabled
-                if ENABLE_TEAMS_ALERTS:
+            # Send Teams message if enabled
+            if ENABLE_TEAMS_ALERTS:
+                try:
                     logger.info("Preparing to send Teams notification...")
                     send_teams_message(df, run_time)
-                else:
-                    logger.info("Teams alerts disabled: no Teams notification sent.")
-
+                    notifications_sent = True
+                except Exception as e:
+                    logger.error(f"Teams notification failed: {e}")
             else:
-                logger.info("No events found matching specified criteria.")
-                # Optional: send "no results notification to Teams"
-                # if ENABLE_TEAMS_ALERTS:
-                #     send_teams_message(df, run_time)
+                logger.info("Teams alerts disabled: no Teams notification sent.")
+            
+            # Only mark events as sent if at least one notification was successful
+            if notifications_sent and event_ids:
+                logger.info(f"Marking {len(event_ids)} event(s) as sent: {event_ids}")
+                sent_event_ids.update(event_ids)
+                save_sent_events(sent_event_ids)
+            elif not notifications_sent:
+                logger.warning("No notifications were sent successfully. Event IDs will NOT be marked as sent.")
 
             
     except Exception as e:
