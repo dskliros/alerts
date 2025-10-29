@@ -1,4 +1,4 @@
-# tests/test_config.py
+# tests/conftest.py
 """
 Pytest configuration and shared fixtures for events_alerts tests
 """
