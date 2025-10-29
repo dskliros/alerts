@@ -21,7 +21,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
 import pymsteams
-from typing import Union, List, Set
+from typing import Union, List, Set, Dict
 import json
 
 # -----------------------------
@@ -106,52 +106,71 @@ logger.addHandler(console_handler)
 # -----------------------------
 # Sent Events Tracking
 # -----------------------------
-def load_sent_events() -> Set[int]:
+def load_sent_events() -> dict:
     """
-    Load the set of event IDs that have already been sent.
-    Returns an empty set if file doesn't exist or is corrupted.
+    Load the dictionary of event IDs that have already been sent with timestamps.
+    Returns dict with event_id as key and sent_at timestamp as value.
+    Returns an empty dict if file doesn't exist or is corrupted.
     """
     if not SENT_EVENTS_FILE.exists():
         logger.info(f"Sent events file not found at {SENT_EVENTS_FILE}. Starting with empty history.")
-        return set()
-    
+        return {}
+
     try:
         with open(SENT_EVENTS_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # Convert to set of integers
-            sent_ids = set(int(event_id) for event_id in data.get('sent_event_ids', []))
-            logger.info(f"Loaded {len(sent_ids)} previously sent event IDs from {SENT_EVENTS_FILE}")
-            return sent_ids
+
+            # Handle both old format (list) and new format (dict with timestamps)
+            sent_events_data = data.get('sent_events', {})
+
+            # Backward compatibility: if old format with sent_event_ids list
+            if not sent_events_data and 'sent_event_ids' in data:
+                logger.info("Converting old format to new format with timestamps")
+                # Convert old list format to new dict format with current time
+                current_time = datetime.now(tz=LOCAL_TZ).isoformat()
+                sent_events_data = {str(event_id): current_time for event_id in data['sent_event_ids']}
+
+            # Convert string keys to integers
+            sent_events = {int(k): v for k, v in sent_events_data.items()}
+
+            logger.info(f"Loaded {len(sent_events)} previously sent event IDs from {SENT_EVENTS_FILE}")
+            return sent_events
     except json.JSONDecodeError as e:
         logger.error(f"Corrupted JSON in {SENT_EVENTS_FILE}: {e}. Starting with empty history.")
-        return set()
+        return {}
     except Exception as e:
         logger.error(f"Error loading sent events from {SENT_EVENTS_FILE}: {e}. Starting with empty history.")
-        return set()
+        return {}
 
 
-def save_sent_events(sent_ids: Set[int]) -> None:
+def save_sent_events(sent_events: dict) -> None:
     """
-    Save the set of sent event IDs to JSON file.
+    Save the dictionary of sent event IDs with timestamps to JSON file.
     Includes metadata about last update.
+
+    Args:
+        sent_events: Dict mapping event_id (int) -> sent_at timestamp (str)
     """
     try:
+        # Convert int keys to strings for JSON compatibility, sort by event ID
+        sent_events_sorted = {str(k): v for k, v in sorted(sent_events.items())}
+
         data = {
-            'sent_event_ids': sorted(list(sent_ids)),  # Sort for readability
+            'sent_events': sent_events_sorted,
             'last_updated': datetime.now(tz=LOCAL_TZ).isoformat(),
-            'total_count': len(sent_ids)
+            'total_count': len(sent_events)
         }
-        
+
         with open(SENT_EVENTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Saved {len(sent_ids)} event IDs to {SENT_EVENTS_FILE}")
+
+        logger.info(f"Saved {len(sent_events)} event IDs with timestamps to {SENT_EVENTS_FILE}")
     except Exception as e:
         logger.error(f"Failed to save sent events to {SENT_EVENTS_FILE}: {e}")
         raise
 
 
-def filter_unsent_events(df: pd.DataFrame, sent_ids: Set[int]) -> pd.DataFrame:
+def filter_unsent_events(df: pd.DataFrame, sent_events: dict) -> pd.DataFrame:
     """
     Filter DataFrame to only include events that haven't been sent yet.
     Returns a new DataFrame with only unsent events.
@@ -163,8 +182,8 @@ def filter_unsent_events(df: pd.DataFrame, sent_ids: Set[int]) -> pd.DataFrame:
         logger.warning("DataFrame missing 'id' column. Cannot filter sent events. Returning all events.")
         return df
     
-    # Filter out events that have already been sent
-    unsent_df = df[~df['id'].isin(sent_ids)].copy()
+    # Filter out events that have already been sent (use keys from dict)
+    unsent_df = df[~df['id'].isin(sent_events.keys())].copy()
     
     filtered_count = len(df) - len(unsent_df)
     if filtered_count > 0:
@@ -607,8 +626,8 @@ def main():
     logger.info(f"Current time (Europe/Athens): {run_time.isoformat()}")
     
     try:
-        # Load previously sent event IDs
-        sent_event_ids = load_sent_events()
+        # Load previously sent event IDs with timestamps
+        sent_events = load_sent_events()
         
         # Connect to database
         logger.info("Establishing database connection...")
@@ -641,8 +660,8 @@ def main():
             
             # Filter out events that have already been sent
             original_count = len(df)
-            df = filter_unsent_events(df, sent_event_ids)
-            
+            df = filter_unsent_events(df, sent_events)
+
             # Format created_at for display
             if not df.empty:
                 df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -707,9 +726,14 @@ def main():
             
             # Only mark events as sent if at least one notification was successful
             if notifications_sent and event_ids:
-                logger.info(f"Marking {len(event_ids)} event(s) as sent: {event_ids}")
-                sent_event_ids.update(event_ids)
-                save_sent_events(sent_event_ids)
+                current_timestamp = run_time.isoformat()
+                logger.info(f"Marking {len(event_ids)} event(s) as sent at {current_timestamp}: {event_ids}")
+
+                # Add new events with current timestamp
+                for event_id in event_ids:
+                    sent_events[event_id] = current_timestamp
+
+                save_sent_events(sent_events)
             elif not notifications_sent:
                 logger.warning("No notifications were sent successfully. Event IDs will NOT be marked as sent.")
 
