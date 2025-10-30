@@ -89,8 +89,7 @@ def test_save_sent_events(temp_project_root, fixed_datetime, local_tz):
     
     assert 'sent_events' in data
     assert 'last_updated' in data
-    assert 'total_count' in data
-    assert data['total_count'] == 2
+    assert 'total_count' not in data
     assert '101' in data['sent_events']
     assert '102' in data['sent_events']
 
@@ -163,3 +162,30 @@ def test_filter_unsent_events_missing_id_column():
     
     # Should return original DataFrame when id column missing
     assert len(result) == 1
+
+
+def test_save_sent_events_no_total_count(temp_project_root, fixed_datetime, local_tz):
+    """Test that total_count is not saved in JSON (removed field)"""
+    from src.events_alerts import save_sent_events
+    
+    sent_events = {
+        101: '2025-10-29T09:00:00+02:00',
+        102: '2025-10-29T09:30:00+02:00'
+    }
+    
+    sent_events_file = temp_project_root / 'data' / 'sent_events.json'
+    
+    with patch('src.events_alerts.SENT_EVENTS_FILE', sent_events_file):
+        with patch('src.events_alerts.LOCAL_TZ', local_tz):
+            save_sent_events(sent_events)
+    
+    # Verify file was created
+    assert sent_events_file.exists()
+    
+    # Verify content
+    with open(sent_events_file, 'r') as f:
+        data = json.load(f)
+    
+    assert 'sent_events' in data
+    assert 'last_updated' in data
+    assert 'total_count' not in data  # Verify it's been removed

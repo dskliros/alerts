@@ -68,15 +68,18 @@ def test_make_html_with_events(sample_event_data, fixed_datetime, mock_db_connec
         with patch('src.events_alerts.load_sql_query', return_value='SELECT * FROM events'):
             with patch('src.events_alerts.COMPANY_NAME', 'Test Company'):
                 with patch('src.events_alerts.EVENT_TYPE_ID', 18):
-                    event_ids, html = make_html(sample_event_data, fixed_datetime)
+                    with patch('src.events_alerts.EVENT_STATUS_ID', 3):
+                        with patch('src.events_alerts.EVENT_LOOKBACK_DAYS', 17):
+                            event_ids, html = make_html(sample_event_data, fixed_datetime)
 
-                    assert len(event_ids) == 2
-                    assert 101 in event_ids
-                    assert 102 in event_ids
-                    assert 'Hot Work Permit - Deck Maintenance' in html
-                    assert 'https://prominence.orca.tools/events/101' in html
-                    assert 'Test Company' in html
-                    assert '<!DOCTYPE html>' in html
+                            assert len(event_ids) == 2
+                            assert 101 in event_ids
+                            assert 102 in event_ids
+                            assert 'Hot Work Permit - Deck Maintenance' in html
+                            assert 'https://prominence.orca.tools/events/101' in html
+                            assert 'Test Company' in html
+                            assert '<!DOCTYPE html>' in html
+                            assert 'Status ID: 3' in html
 
 
 def test_make_html_empty(empty_event_data, fixed_datetime, mock_db_connection):
@@ -108,3 +111,24 @@ def test_make_html_with_logos(sample_event_data, fixed_datetime, mock_db_connect
 
                 assert 'cid:company_logo' in html
                 assert 'cid:st_company_logo' in html
+
+
+def test_make_html_lookback_days_plural(sample_event_data, fixed_datetime, mock_db_connection):
+    """Test HTML shows correct singular/plural for lookback days"""
+    from src.events_alerts import make_html
+    
+    with patch('src.events_alerts.get_db_connection', return_value=mock_db_connection):
+        with patch('src.events_alerts.load_sql_query', return_value='SELECT * FROM events'):
+            with patch('src.events_alerts.COMPANY_NAME', 'Test Company'):
+                with patch('src.events_alerts.EVENT_TYPE_ID', 18):
+                    with patch('src.events_alerts.EVENT_STATUS_ID', 3):
+                        # Test plural (17 days)
+                        with patch('src.events_alerts.EVENT_LOOKBACK_DAYS', 17):
+                            event_ids, html = make_html(sample_event_data, fixed_datetime)
+                            assert '17 days' in html
+                        
+                        # Test singular (1 day)
+                        with patch('src.events_alerts.EVENT_LOOKBACK_DAYS', 1):
+                            event_ids, html = make_html(sample_event_data, fixed_datetime)
+                            assert '1 day' in html
+                            assert '1 days' not in html

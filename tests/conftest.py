@@ -115,6 +115,12 @@ def local_tz():
 
 
 @pytest.fixture
+def event_status_id():
+    """Default event status ID for testing"""
+    return 3
+
+
+@pytest.fixture
 def fixed_datetime(local_tz):
     """Fixed datetime for testing"""
     return datetime(2025, 10, 29, 9, 41, 19, tzinfo=local_tz)

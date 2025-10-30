@@ -66,7 +66,8 @@ LOG_MAX_BYTES = int(config('LOG_MAX_BYTES', default=10_485_760))  # 10MB
 LOG_BACKUP_COUNT = int(config('LOG_BACKUP_COUNT', default=5))
 
 # Query configuration (can be moved to .env if needed)
-EVENT_TYPE_ID = int(config('EVENT_TYPE_ID', default=18))
+EVENT_TYPE_ID = int(config('EVENT_TYPE_ID', default=18))    # 18 -> label = permits
+EVENT_STATUS_ID = int(config('EVENT_STATUS_ID', default=3))       # 3 -> progress = for-review
 EVENT_NAME_FILTER = config('EVENT_NAME_FILTER', default='hot')
 EVENT_EXCLUDE = config('EVENT_EXCLUDE', default='vessel')
 EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
@@ -157,8 +158,8 @@ def save_sent_events(sent_events: dict) -> None:
 
         data = {
             'sent_events': sent_events_sorted,
-            'last_updated': datetime.now(tz=LOCAL_TZ).isoformat(),
-            'total_count': len(sent_events)
+            'last_updated': datetime.now(tz=LOCAL_TZ).isoformat()
+            #'total_count': len(sent_events)
         }
 
         with open(SENT_EVENTS_FILE, 'w', encoding='utf-8') as f:
@@ -497,7 +498,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         html += f"""
         <div class="metadata">
             <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
-            <strong>Query Criteria:</strong> Type ID: {EVENT_TYPE_ID}, Last {EVENT_LOOKBACK_DAYS} days<br>
+            <strong>Query Criteria:</strong> Type ID: {EVENT_TYPE_ID}, Status ID: {EVENT_STATUS_ID}, Lookback: {EVENT_LOOKBACK_DAYS} day{'' if EVENT_LOOKBACK_DAYS == 1 else 's'}<br>
             <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
             <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
         </div>
@@ -639,13 +640,14 @@ def main():
             query = text(query_sql) 
 
             # Execute query
-            logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, name_filter='%{EVENT_NAME_FILTER}%', name_excluded='%{EVENT_EXCLUDE}%', lookback_days={EVENT_LOOKBACK_DAYS}")
+            logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, status_id={EVENT_STATUS_ID}, name_filter='%{EVENT_NAME_FILTER}%', name_excluded='%{EVENT_EXCLUDE}%', lookback_days={EVENT_LOOKBACK_DAYS}")
             
             df = pd.read_sql_query(
                 query, 
                 conn, 
                 params={
                     'type_id': EVENT_TYPE_ID,
+                    'status_id': EVENT_STATUS_ID,
                     'name_filter': f'%{EVENT_NAME_FILTER}%',
                     'name_excluded': f'%{EVENT_EXCLUDE}%',
                     'lookback_days': EVENT_LOOKBACK_DAYS
