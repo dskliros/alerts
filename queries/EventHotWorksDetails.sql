@@ -2,15 +2,14 @@ SELECT
 	e.id,
 	e.name AS event_name,
 	e.created_at,
-	--et.name AS event_type,
-    --ed.status_id AS status_id,
-    es.name AS status
-    --es.progress as progress
+    es.name AS status,
+    v.email AS email
+    --v.id AS vessel_id,
+    --v.name AS vessel_name
 FROM 
 	events e
-LEFT JOIN event_types et ON e.type_id = et.id
-LEFT JOIN vessels v ON e.vessel_id = v.id
-LEFT JOIN vessel_subtypes vs ON v.subtype_id = vs.id
+LEFT JOIN vessels v ON v.id = e.vessel_id
+--LEFT JOIN vessel_subtypes vs ON vs.id = v.subtype_id
 LEFT JOIN event_details ed ON ed.event_id = e.id
 LEFT JOIN event_statuses es ON es.id = ed.status_id
 WHERE
@@ -20,4 +19,4 @@ WHERE
     AND LOWER(e.name) NOT LIKE :name_excluded
 	AND e.created_at >= NOW() - INTERVAL '1 day' * :lookback_days
 ORDER BY
-	created_at ASC;
+	e.created_at ASC;

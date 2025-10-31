@@ -52,6 +52,9 @@ SMTP_USER = config('SMTP_USER')
 SMTP_PASS = config('SMTP_PASS')
 
 INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
+PROMINENCE_EMAIL_RECIPIENTS = [s.strip() for s in config('PROMINENCE_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
+SEATRADERS_EMAIL_RECIPIENTS = [s.strip() for s in config('SEATRADERS_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
+
 ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False, cast=bool)
 SPECIAL_TEAMS_EMAIL = config('SPECIAL_TEAMS_EMAIL', '').strip()
 
@@ -212,7 +215,6 @@ def save_sent_events(sent_events: dict) -> None:
         data = {
             'sent_events': sent_events_sorted,
             'last_updated': datetime.now(tz=LOCAL_TZ).isoformat()
-            #'total_count': len(sent_events)
         }
 
         with open(SENT_EVENTS_FILE, 'w', encoding='utf-8') as f:
@@ -702,7 +704,7 @@ def main():
             query_sql = load_sql_query(config('SQL_QUERY_FILE'))
             query = text(query_sql) 
 
-            # Execute query
+            # Execute Admin Query
             logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, status_id={EVENT_STATUS_ID}, name_filter='%{EVENT_NAME_FILTER}%', name_excluded='%{EVENT_EXCLUDE}%', lookback_days={EVENT_LOOKBACK_DAYS}")
             
             df = pd.read_sql_query(
@@ -737,11 +739,11 @@ def main():
             if not df.empty and 'id' not in df.columns:
                 logger.warning("Query result missing 'id' column - event links and deduplication will not work")
             
-            # Filter out events that have already been sent
+            # CRITICAL: Filter out events that have already been sent BEFORE creating company-specific DataFrames
             original_count = len(df)
             df = filter_unsent_events(df, sent_events)
 
-            # Format created_at for display
+            # Format created_at for display (after filtering)
             if not df.empty:
                 df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
             
@@ -755,8 +757,29 @@ def main():
             
             # We have new events - prepare notifications
             logger.info(f"{len(df)} new event(s) to be sent.")
+
+            # NOW create company-specific DataFrames from the FILTERED df
+            logger.info('Preparing PROMINENCE notification DataFrame')
+            df_prominence = df[df['email'].str.contains('prominence', case=False, na=False)].copy()
+            if not df_prominence.empty:
+                df_prominence = df_prominence.drop(columns=['email'])
+                logger.info(f"Found {len(df_prominence)} prominence event(s) to send")
+            else:
+                logger.info("No prominence events to send")
+
+            logger.info('Preparing SEATRADERS notification DataFrame')
+            df_seatraders = df[df['email'].str.contains('seatraders', case=False, na=False)].copy()
+            if not df_seatraders.empty:
+                df_seatraders = df_seatraders.drop(columns=['email'])
+                logger.info(f"Found {len(df_seatraders)} seatraders event(s) to send")
+            else:
+                logger.info("No seatraders events to send")
+
+            # Remove email column from main df for internal recipients
+            if 'email' in df.columns:
+                df = df.drop(columns=['email'])
             
-            # Generate email content
+            # Generate email content for internal recipients
             subject = make_subject(len(df))
             plain_text = make_plain_text(df, run_time)
 
@@ -765,20 +788,74 @@ def main():
             has_st_logo = ST_COMPANY_LOGO.exists()
             event_ids, html_content = make_html(df, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
             trimmed_event_ids, trimmed_html_content = make_html(df, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+
+            # Initialize variables for company-specific content
+            event_ids_prominence = []
+            event_ids_seatraders = []
+
+            ##########################
+            ####### PROMINENCE #######
+            ##########################
+            if not df_prominence.empty:
+                logger.info('Generating PROMINENCE email content')
+                subject_prominence = make_subject(len(df_prominence))
+                plain_text_prominence = make_plain_text(df_prominence, run_time)
+                event_ids_prominence, html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+                trimmed_event_ids_prominence, trimmed_html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+            else:
+                logger.info("Skipping PROMINENCE email generation - no events")
+
+            ##########################
+            ####### SEATRADERS #######
+            ##########################
+            if not df_seatraders.empty:
+                logger.info('Generating SEATRADERS email content')
+                subject_seatraders = make_subject(len(df_seatraders))
+                plain_text_seatraders = make_plain_text(df_seatraders, run_time)
+                event_ids_seatraders, html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+                trimmed_event_ids_seatraders, trimmed_html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+            else:
+                logger.info("Skipping SEATRADERS email generation - no events")
+
             
             # Track if any notification was sent successfully
             notifications_sent = False
+            notifications_sent_prominence = False
+            notifications_sent_seatraders = False
             
             # Send email if enabled
             if ENABLE_EMAIL_ALERTS:
+                # Send to internal recipients
                 try:
                     logger.info(f"Preparing to send email to: {', '.join(INTERNAL_RECIPIENTS)}")
                     send_email(subject, plain_text, html_content, INTERNAL_RECIPIENTS)
                     notifications_sent = True
                 except Exception as e:
-                    logger.error(f"Email sending failed: {e}")
+                    logger.error(f"Internal email sending failed: {e}")
+
+                # Send to prominence recipients (only if we have events)
+                if not df_prominence.empty:
+                    try:
+                        logger.info(f"Preparing to send email to: {', '.join(PROMINENCE_EMAIL_RECIPIENTS)}")
+                        send_email(subject_prominence, plain_text_prominence, html_content_prominence, PROMINENCE_EMAIL_RECIPIENTS)
+                        notifications_sent_prominence = True
+                    except Exception as e:
+                        logger.error(f"Prominence email sending failed: {e}")
+                else:
+                    logger.info("Skipping PROMINENCE email send - no events")
+
+                # Send to seatraders recipients (only if we have events)
+                if not df_seatraders.empty:
+                    try:
+                        logger.info(f"Preparing to send email to: {', '.join(SEATRADERS_EMAIL_RECIPIENTS)}")
+                        send_email(subject_seatraders, plain_text_seatraders, html_content_seatraders, SEATRADERS_EMAIL_RECIPIENTS)
+                        notifications_sent_seatraders = True
+                    except Exception as e:
+                        logger.error(f"Seatraders email sending failed: {e}")
+                else:
+                    logger.info("Skipping SEATRADERS email send - no events")
             else:
-                logger.info("Email alerts disabled: no email sent.")
+                logger.info("EMAIL ALERTS DISABLED: NO EMAIL SENT.")
             
             # Send special Teams email if enabled
             if ENABLE_SPECIAL_TEAMS_EMAIL_ALERT:
@@ -803,17 +880,31 @@ def main():
             else:
                 logger.info("Teams alerts disabled: no Teams notification sent.")
             
-            # Only mark events as sent if at least one notification was successful
-            if notifications_sent and event_ids:
-                current_timestamp = run_time.isoformat()
-                logger.info(f"Marking {len(event_ids)} event(s) as sent at {current_timestamp}: {event_ids}")
+            # Collect all successfully sent event IDs and save once
+            all_sent_event_ids = set()
 
-                # Add new events with current timestamp
-                for event_id in event_ids:
+            if notifications_sent and event_ids:
+                logger.info(f"Adding {len(event_ids)} internal event ID(s) to sent tracking")
+                all_sent_event_ids.update(event_ids)
+                
+            if notifications_sent_prominence and event_ids_prominence:
+                logger.info(f"Adding {len(event_ids_prominence)} prominence event ID(s) to sent tracking")
+                all_sent_event_ids.update(event_ids_prominence)
+                
+            if notifications_sent_seatraders and event_ids_seatraders:
+                logger.info(f"Adding {len(event_ids_seatraders)} seatraders event ID(s) to sent tracking")
+                all_sent_event_ids.update(event_ids_seatraders)
+
+            # Save all sent events at once
+            if all_sent_event_ids:
+                current_timestamp = run_time.isoformat()
+                logger.info(f"Marking {len(all_sent_event_ids)} total unique event(s) as sent at {current_timestamp}")
+
+                for event_id in all_sent_event_ids:
                     sent_events[event_id] = current_timestamp
 
                 save_sent_events(sent_events)
-            elif not notifications_sent:
+            else:
                 logger.warning("No notifications were sent successfully. Event IDs will NOT be marked as sent.")
 
             
