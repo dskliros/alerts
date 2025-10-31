@@ -12,7 +12,7 @@ from src.db_utils import get_db_connection
 from decouple import config
 from sqlalchemy import text
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import smtplib
 from email.message import EmailMessage
@@ -23,6 +23,8 @@ from pathlib import Path
 import pymsteams
 from typing import Union, List, Set, Dict
 import json
+import time
+import signal
 
 # -----------------------------
 # Project Structure
@@ -75,6 +77,9 @@ EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
 # Automation Scheduler Frequency (hours)
 SCHEDULE_FREQUENCY = int(config('SCHEDULE_FREQUENCY', default=1))
 
+# Automated Reminder Frequency (days)
+REMINDER_FREQUENCY_DAYS = int(config('REMINDER_FREQUENCY_DAYS', default=30))
+
 # Timezone for scheduling & timestamps (Greece)
 LOCAL_TZ = ZoneInfo('Europe/Athens')
 
@@ -104,12 +109,30 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
+
+# -----------------------------
+# Graceful Shutdown Handler
+# -----------------------------
+shutdown_flag = False
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully"""
+    global shutdown_flag
+    logger.info(f"Received signal {signum}. Initiating graceful shutdown...")
+    shutdown_flag = True
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
+
 # -----------------------------
 # Sent Events Tracking
 # -----------------------------
 def load_sent_events() -> dict:
     """
     Load the dictionary of event IDs that have already been sent with timestamps.
+    Automatically removes events older than REMINDER_FREQUENCY_DAYS.
     Returns dict with event_id as key and sent_at timestamp as value.
     Returns an empty dict if file doesn't exist or is corrupted.
     """
@@ -134,8 +157,38 @@ def load_sent_events() -> dict:
             # Convert string keys to integers
             sent_events = {int(k): v for k, v in sent_events_data.items()}
 
-            logger.info(f"Loaded {len(sent_events)} previously sent event IDs from {SENT_EVENTS_FILE}")
-            return sent_events
+            logger.info(f"Loaded {len(sent_events)} event ID(s) from {SENT_EVENTS_FILE}")
+
+            # Filter out events older than REMINDER_FREQUENCY_DAYS
+            cutoff_date = datetime.now(tz=LOCAL_TZ) - timedelta(days=REMINDER_FREQUENCY_DAYS)
+            filtered_events = {}
+            removed_count = 0
+
+            for event_id, timestamp_str in sent_events.items():
+                try:
+                    # Parse the ISO format timestamp
+                    event_timestamp = datetime.fromisoformat(timestamp_str)
+                    
+                    # Keep only events within the reminder frequency window
+                    if event_timestamp >= cutoff_date:
+                        filtered_events[event_id] = timestamp_str
+                    else:
+                        removed_count += 1
+                        logger.debug(f"Removing event ID {event_id} (sent at {timestamp_str}, older than {REMINDER_FREQUENCY_DAYS} days)")
+                
+                except (ValueError, TypeError) as e:
+                    # If timestamp is invalid, remove it
+                    logger.warning(f"Invalid timestamp for event ID {event_id}: {timestamp_str}. Removing from tracking.")
+                    removed_count += 1
+
+            if removed_count > 0:
+                logger.info(f"Removed {removed_count} event(s) older than {REMINDER_FREQUENCY_DAYS} days from tracking")
+                # Save the filtered events immediately to persist the cleanup
+                save_sent_events(filtered_events)
+            
+            logger.info(f"Tracking {len(filtered_events)} recent event ID(s) (sent within last {REMINDER_FREQUENCY_DAYS} days)")
+            return filtered_events
+
     except json.JSONDecodeError as e:
         logger.error(f"Corrupted JSON in {SENT_EVENTS_FILE}: {e}. Starting with empty history.")
         return {}
@@ -750,20 +803,73 @@ def main():
         logger.info("=" * 60)
 
 
+def run_scheduler():
+    """
+    Continuously run the alerts system at intervals specified by SCHEDULE_FREQUENCY.
+    Runs immediately on startup, then waits SCHEDULE_FREQUENCY hours between runs.
+    """
+    global shutdown_flag
+
+    logger.info("=" * 60)
+    logger.info(f"Scheduler Started - Running every {SCHEDULE_FREQUENCY} hour(s)")
+    logger.info("=" * 60)
+
+    while not shutdown_flag:
+        try:
+            # Run the main alerts logic
+            main()
+
+            # Check shutdown flag before sleeping
+            if shutdown_flag:
+                break
+
+            # Calculate sleep time in seconds
+            sleep_seconds = SCHEDULE_FREQUENCY * 3600
+            logger.info(f"Sleeping for {SCHEDULE_FREQUENCY} hour(s) ({sleep_seconds} seconds)...")
+            logger.info(f"Next run scheduled at: {(datetime.now(tz=LOCAL_TZ) + timedelta(hours=SCHEDULE_FREQUENCY)).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+            # Sleep in smaller intervals to check shutdown flag
+            sleep_interval = 60  # Check every minute
+            elapsed = 0
+            while elapsed < sleep_seconds and not shutdown_flag:
+                time.sleep(min(sleep_interval, sleep_seconds - elapsed))
+                elapsed += sleep_interval
+
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received. Shutting down...")
+            break
+        except Exception as e:
+            logger.exception(f"Unhandled exception in scheduler loop: {e}")
+            # Wait a bit before retrying to avoid rapid failure loops
+            if not shutdown_flag:
+                logger.info("Waiting 5 minutes before retry...")
+                time.sleep(300)
+
+    logger.info("=" * 60)
+    logger.info("Scheduler Stopped")
+    logger.info("=" * 60)
+
+
+# -------------------------------------------------------------------------
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Events Alerts System')
     parser.add_argument('--dry-run', action='store_true', help='Run without sending notifications')
+    parser.add_argument('--run-once', action='store_true', help='Run once and exit (no scheduling)')
     args = parser.parse_args()
-    
+
     if args.dry_run:
         logger.info("DRY RUN MODE - No notifications will be sent")
         ENABLE_EMAIL_ALERTS = False
         ENABLE_TEAMS_ALERTS = False
         ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = False
-    
+
     try:
-        main()
+        if args.run_once:
+            logger.info("RUN-ONCE MODE - Executing single run without scheduling")
+            main()
+        else:
+            run_scheduler()
     except Exception:
-        logger.exception("Unhandled exception occurred in main()")
+        logger.exception("Unhandled exception occurred")
         sys.exit(1)
