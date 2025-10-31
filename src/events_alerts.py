@@ -414,15 +414,19 @@ Found {len(df)} event(s) matching criteria.
     return text
 
 
-def make_html(df, df_type_and_status, run_time, has_company_logo=False, has_st_logo=False):
+def make_html(df, run_time, df_type_and_status=pd.DataFrame(), has_company_logo=False, has_st_logo=False):
     """Generate a rich, dynamically formatted HTML email for events."""
     event_id, event_name = get_event_id_name(type_id=EVENT_TYPE_ID)
 
-    # Get 'type name' and 'status name'
-    logger.info("Trying to extract type name and status name from 'df_type_and_status'")
-    type_name = str(df_type_and_status.at[0, 'type_name'])
-    status_name = str(df_type_and_status.at[0, 'status_name'])
-    logger.info(f"Found: 'Event Type' = {type_name}, 'Status Name' = {status_name}")
+    if df_type_and_status.empty:
+        type_name = 'Default Type'
+        status_name = 'Default Status'
+    else:
+        # Get 'type name' and 'status name'
+        logger.info("Trying to extract type name and status name from 'df_type_and_status'")
+        type_name = str(df_type_and_status.at[0, 'type_name'])
+        status_name = str(df_type_and_status.at[0, 'status_name'])
+        logger.info(f"Found: 'Event Type' = {type_name}, 'Status Name' = {status_name}")
 
     
     # Initialize event_ids to avoid NameError when df is empty
@@ -759,8 +763,8 @@ def main():
             # Check if logos exist for HTML
             has_company_logo = COMPANY_LOGO.exists()
             has_st_logo = ST_COMPANY_LOGO.exists()
-            event_ids, html_content = make_html(df, df_type_and_status, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-            trimmed_event_ids, trimmed_html_content = make_html(df, df_type_and_status, run_time, has_company_logo=False, has_st_logo=False)
+            event_ids, html_content = make_html(df, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+            trimmed_event_ids, trimmed_html_content = make_html(df, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
             
             # Track if any notification was sent successfully
             notifications_sent = False

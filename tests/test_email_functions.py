@@ -79,7 +79,8 @@ def test_make_html_with_events(sample_event_data, fixed_datetime, mock_db_connec
                             assert 'https://prominence.orca.tools/events/101' in html
                             assert 'Test Company' in html
                             assert '<!DOCTYPE html>' in html
-                            assert 'Status ID: 3' in html
+                            assert 'Status: Default Status' in html
+                            assert 'Type: Default Type' in html
 
 
 def test_make_html_empty(empty_event_data, fixed_datetime, mock_db_connection):
