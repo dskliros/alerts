@@ -75,7 +75,7 @@ EVENT_EXCLUDE = config('EVENT_EXCLUDE', default='vessel')
 EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
 
 # Automation Scheduler Frequency (hours)
-SCHEDULE_FREQUENCY = int(config('SCHEDULE_FREQUENCY', default=1))
+SCHEDULE_FREQUENCY = float(config('SCHEDULE_FREQUENCY', default=1))
 
 # Automated Reminder Frequency (days)
 REMINDER_FREQUENCY_DAYS = int(config('REMINDER_FREQUENCY_DAYS', default=30))
@@ -414,9 +414,16 @@ Found {len(df)} event(s) matching criteria.
     return text
 
 
-def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
+def make_html(df, df_type_and_status, run_time, has_company_logo=False, has_st_logo=False):
     """Generate a rich, dynamically formatted HTML email for events."""
     event_id, event_name = get_event_id_name(type_id=EVENT_TYPE_ID)
+
+    # Get 'type name' and 'status name'
+    logger.info("Trying to extract type name and status name from 'df_type_and_status'")
+    type_name = str(df_type_and_status.at[0, 'type_name'])
+    status_name = str(df_type_and_status.at[0, 'status_name'])
+    logger.info(f"Found: 'Event Type' = {type_name}, 'Status Name' = {status_name}")
+
     
     # Initialize event_ids to avoid NameError when df is empty
     event_ids = []
@@ -551,7 +558,7 @@ def make_html(df, run_time, has_company_logo=False, has_st_logo=False):
         html += f"""
         <div class="metadata">
             <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
-            <strong>Query Criteria:</strong> Type ID: {EVENT_TYPE_ID}, Status ID: {EVENT_STATUS_ID}, Lookback: {EVENT_LOOKBACK_DAYS} day{'' if EVENT_LOOKBACK_DAYS == 1 else 's'}<br>
+            <strong>Query Criteria:</strong> Type: {type_name}, Status: {status_name}, Lookback: {EVENT_LOOKBACK_DAYS} day{'' if EVENT_LOOKBACK_DAYS == 1 else 's'}<br>
             <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
             <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
         </div>
@@ -674,7 +681,6 @@ def main():
     """Main execution function"""
     logger.info("=" * 60)
     logger.info("Events Alerts - Run Started")
-    logger.info("=" * 60)
     
     run_time = datetime.now(tz=LOCAL_TZ)
     logger.info(f"Current time (Europe/Athens): {run_time.isoformat()}")
@@ -706,8 +712,22 @@ def main():
                     'lookback_days': EVENT_LOOKBACK_DAYS
                 }
             )
-            
             logger.info(f"Query executed successfully. Found {len(df)} event(s) from database.")
+
+            # Load query to extract type_name and status_name from corresponding IDs defined in .env from file
+            type_and_status_sql = load_sql_query(config('SQL_TYPE_AND_STATUS_FILE'))
+            type_and_status = text(type_and_status_sql)
+
+            # Execute new type and status query
+            logger.info(f"Extracting 'Event Type' from type_id = {EVENT_TYPE_ID}, and 'Status Name' from status_id = {EVENT_STATUS_ID}")
+            df_type_and_status = pd.read_sql_query(
+                    type_and_status,
+                    conn,
+                    params={
+                        'type_id': EVENT_TYPE_ID,
+                        'status_id': EVENT_STATUS_ID
+                    }
+            )
             
             # Validate that ID column exists for link generation and deduplication
             if not df.empty and 'id' not in df.columns:
@@ -739,8 +759,8 @@ def main():
             # Check if logos exist for HTML
             has_company_logo = COMPANY_LOGO.exists()
             has_st_logo = ST_COMPANY_LOGO.exists()
-            event_ids, html_content = make_html(df, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-            trimmed_event_ids, trimmed_html_content = make_html(df, run_time, has_company_logo=False, has_st_logo=False)
+            event_ids, html_content = make_html(df, df_type_and_status, run_time, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+            trimmed_event_ids, trimmed_html_content = make_html(df, df_type_and_status, run_time, has_company_logo=False, has_st_logo=False)
             
             # Track if any notification was sent successfully
             notifications_sent = False
@@ -798,7 +818,6 @@ def main():
         sys.exit(1)
     
     finally:
-        logger.info("=" * 60)
         logger.info("Events Alerts - Run Completed")
         logger.info("=" * 60)
 
@@ -812,7 +831,6 @@ def run_scheduler():
 
     logger.info("=" * 60)
     logger.info(f"Scheduler Started - Running every {SCHEDULE_FREQUENCY} hour(s)")
-    logger.info("=" * 60)
 
     while not shutdown_flag:
         try:

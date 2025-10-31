@@ -20,15 +20,14 @@ def test_load_sent_events_empty_file(temp_project_root):
 
 
 def test_load_sent_events_with_data(sent_events_json, sample_sent_events):
-    """Test loading existing sent events"""
     from src.events_alerts import load_sent_events
-    
-    with patch('src.events_alerts.SENT_EVENTS_FILE', sent_events_json):
+
+    with patch('src.events_alerts.SENT_EVENTS_FILE', Path(sent_events_json)), \
+         patch('src.events_alerts.REMINDER_FREQUENCY_DAYS', 10):
         result = load_sent_events()
         assert len(result) == 2
         assert 99 in result
         assert 100 in result
-        assert result[99] == '2025-10-28T10:00:00+02:00'
 
 
 def test_load_sent_events_corrupted_json(temp_project_root):

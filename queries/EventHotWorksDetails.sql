@@ -2,8 +2,8 @@ SELECT
 	e.id,
 	e.name AS event_name,
 	e.created_at,
-	et.name AS event_type,
-    ed.status_id AS status_id,
+	--et.name AS event_type,
+    --ed.status_id AS status_id,
     es.name AS status
     --es.progress as progress
 FROM 
