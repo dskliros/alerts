@@ -25,6 +25,9 @@ from typing import Union, List, Set, Dict
 import json
 import time
 import signal
+import threading
+import tempfile
+import shutil
 
 # -----------------------------
 # Project Structure
@@ -65,6 +68,9 @@ ENABLE_EMAIL_ALERTS = config('ENABLE_EMAIL_ALERTS', default=True, cast=bool)
 COMPANY_NAME = config('COMPANY_NAME', default='Company')
 COMPANY_LOGO = MEDIA_DIR / config('COMPANY_LOGO', default='')
 ST_COMPANY_LOGO = MEDIA_DIR / config('ST_COMPANY_LOGO', default='')
+
+# CRITICAL FIX #2: Configurable events base URL instead of hardcoded
+EVENTS_BASE_URL = config('EVENTS_BASE_URL', default='https://prominence.orca.tools/events')
 
 LOG_FILE = LOGS_DIR / config('LOG_FILE', default='events_alerts.log')
 LOG_MAX_BYTES = int(config('LOG_MAX_BYTES', default=10_485_760))  # 10MB
@@ -116,13 +122,13 @@ logger.addHandler(console_handler)
 # -----------------------------
 # Graceful Shutdown Handler
 # -----------------------------
-shutdown_flag = False
+# CRITICAL FIX #1: Thread-safe shutdown event instead of boolean flag
+shutdown_event = threading.Event()
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
-    global shutdown_flag
     logger.info(f"Received signal {signum}. Initiating graceful shutdown...")
-    shutdown_flag = True
+    shutdown_event.set()
 
 # Register signal handlers
 signal.signal(signal.SIGTERM, signal_handler)
@@ -204,10 +210,12 @@ def save_sent_events(sent_events: dict) -> None:
     """
     Save the dictionary of sent event IDs with timestamps to JSON file.
     Includes metadata about last update.
+    Uses atomic write to prevent corruption if interrupted.
 
     Args:
         sent_events: Dict mapping event_id (int) -> sent_at timestamp (str)
     """
+    # CRITICAL FIX #3: Atomic file writes to prevent corruption
     try:
         # Convert int keys to strings for JSON compatibility, sort by event ID
         sent_events_sorted = {str(k): v for k, v in sorted(sent_events.items())}
@@ -217,10 +225,28 @@ def save_sent_events(sent_events: dict) -> None:
             'last_updated': datetime.now(tz=LOCAL_TZ).isoformat()
         }
 
-        with open(SENT_EVENTS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-
-        logger.info(f"Saved {len(sent_events)} event IDs with timestamps to {SENT_EVENTS_FILE}")
+        # Write to temporary file first
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=SENT_EVENTS_FILE.parent, 
+            suffix='.tmp',
+            text=True
+        )
+        
+        try:
+            # Write JSON to temp file
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Atomically replace old file with new file
+            shutil.move(temp_path, SENT_EVENTS_FILE)
+            
+            logger.info(f"Saved {len(sent_events)} event IDs with timestamps to {SENT_EVENTS_FILE}")
+        except Exception:
+            # Clean up temp file if something went wrong
+            if Path(temp_path).exists():
+                Path(temp_path).unlink()
+            raise
+            
     except Exception as e:
         logger.error(f"Failed to save sent events to {SENT_EVENTS_FILE}: {e}")
         raise
@@ -404,9 +430,9 @@ Found {len(df)} event(s) matching criteria.
 
     for idx, row in df.iterrows():
         text += f"\n{idx + 1}."
-        # Add link if ID is available
+        # Add link if ID is available (using configurable base URL)
         if 'id' in df.columns:
-            event_url = f"https://prominence.orca.tools/events/{row['id']}"
+            event_url = f"{EVENTS_BASE_URL}/{row['id']}"
             text += f"\n   Link: {event_url}"
         for col in df.columns:
             text += f"\n   {col}: {row[col]}"
@@ -580,8 +606,8 @@ def make_html(df, run_time, df_type_and_status=pd.DataFrame(), has_company_logo=
             html += "<tr>"
             for col in df.columns:
                 if col == 'event_name' and 'id' in df.columns:
-                    # Make event_name a clickable link
-                    event_url = f"https://prominence.orca.tools/events/{row['id']}"
+                    # Make event_name a clickable link (using configurable base URL)
+                    event_url = f"{EVENTS_BASE_URL}/{row['id']}"
                     html += f"""<td>
                         <strong>
                             <a href="{event_url}" 
@@ -922,18 +948,16 @@ def run_scheduler():
     Continuously run the alerts system at intervals specified by SCHEDULE_FREQUENCY.
     Runs immediately on startup, then waits SCHEDULE_FREQUENCY hours between runs.
     """
-    global shutdown_flag
-
     logger.info("=" * 60)
     logger.info(f"Scheduler Started - Running every {SCHEDULE_FREQUENCY} hour(s)")
 
-    while not shutdown_flag:
+    while not shutdown_event.is_set():
         try:
             # Run the main alerts logic
             main()
 
             # Check shutdown flag before sleeping
-            if shutdown_flag:
+            if shutdown_event.is_set():
                 break
 
             # Calculate sleep time in seconds
@@ -941,12 +965,11 @@ def run_scheduler():
             logger.info(f"Sleeping for {SCHEDULE_FREQUENCY} hour(s) ({sleep_seconds} seconds)...")
             logger.info(f"Next run scheduled at: {(datetime.now(tz=LOCAL_TZ) + timedelta(hours=SCHEDULE_FREQUENCY)).strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
-            # Sleep in smaller intervals to check shutdown flag
-            sleep_interval = 60  # Check every minute
-            elapsed = 0
-            while elapsed < sleep_seconds and not shutdown_flag:
-                time.sleep(min(sleep_interval, sleep_seconds - elapsed))
-                elapsed += sleep_interval
+            # Use shutdown_event.wait() for efficient interruptible sleep
+            # Returns True if event was set (shutdown requested), False if timeout
+            if shutdown_event.wait(timeout=sleep_seconds):
+                logger.info("Shutdown requested during sleep period")
+                break
 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received. Shutting down...")
@@ -954,9 +977,11 @@ def run_scheduler():
         except Exception as e:
             logger.exception(f"Unhandled exception in scheduler loop: {e}")
             # Wait a bit before retrying to avoid rapid failure loops
-            if not shutdown_flag:
+            if not shutdown_event.is_set():
                 logger.info("Waiting 5 minutes before retry...")
-                time.sleep(300)
+                if shutdown_event.wait(timeout=300):
+                    logger.info("Shutdown requested during error recovery wait")
+                    break
 
     logger.info("=" * 60)
     logger.info("Scheduler Stopped")
@@ -966,6 +991,8 @@ def run_scheduler():
 # -------------------------------------------------------------------------
 if __name__ == '__main__':
     import argparse
+    import os  # Added for atomic file writes
+    
     parser = argparse.ArgumentParser(description='Events Alerts System')
     parser.add_argument('--dry-run', action='store_true', help='Run without sending notifications')
     parser.add_argument('--run-once', action='store_true', help='Run once and exit (no scheduling)')
