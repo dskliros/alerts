@@ -28,6 +28,7 @@ import signal
 import threading
 import tempfile
 import shutil
+import os
 
 # -----------------------------
 # Project Structure
@@ -310,17 +311,58 @@ def load_logo(logo_path):
         logger.error(f"Failed to load logo from {logo_path}: {e}")
         return None, None, None
 
+
 # -----------------------------
 # SQL Query Loader
 # -----------------------------
-def load_sql_query(query_file='EventHotWork.sql'):
-    """Load SQL query from queries directory"""
+def load_sql_query(query_file='EventHotWork.sql') -> str:
+    """
+    Load SQL query from queries directory with path traversal protection.
+
+    Args:
+        query_file: Name of the SQL file in queries directory
+
+    Returns:
+        SQL query string
+
+    Raises:
+        ValueError: If path is outside queries directory
+        FileNotFoundError: If query file doesn't exist
+    """
     query_path = QUERIES_DIR / query_file
+
+    # SECURITY: Validate path is within QUERIES_DIR to prevent path traversal attacks
+    # This prevents queries like "../../../etc/passwd" from accessing files outside queries/
+    try:
+        resolved_query = query_path.resolve()
+        resolved_queries_dir = QUERIES_DIR.resolve()
+
+        if not resolved_query.is_relative_to(resolved_queries_dir):
+            raise ValueError(
+                f"Security violation: Query file '{query_file}' resolves outside queries directory. "
+                f"Attempted path: {resolved_query}"
+            )
+    except (ValueError, OSError) as e:
+        logger.error(f"Path validation failed for query file '{query_file}': {e}")
+        raise ValueError(f"Invalid query file path: {query_file}") from e
+
     if not query_path.exists():
         raise FileNotFoundError(f"SQL query file not found: {query_path}")
 
-    with open(query_path, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    try:
+        with open(query_path, 'r', encoding='utf-8') as f:
+            query_content = f.read().strip()
+
+        if not query_content:
+            raise ValueError(f"Query file is empty: {query_path}")
+
+        logger.debug(f"Loaded SQL query from {query_path} ({len(query_content)} bytes)")
+        return query_content
+
+    except Exception as e:
+        logger.error(f"Failed to read query file {query_path}: {e}")
+        raise
+
 
 # -----------------------------
 # Teams Message Function
@@ -991,7 +1033,6 @@ def run_scheduler():
 # -------------------------------------------------------------------------
 if __name__ == '__main__':
     import argparse
-    import os  # Added for atomic file writes
     
     parser = argparse.ArgumentParser(description='Events Alerts System')
     parser.add_argument('--dry-run', action='store_true', help='Run without sending notifications')
