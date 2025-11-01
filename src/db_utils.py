@@ -3,7 +3,7 @@ import os
 from decouple import config
 from contextlib import contextmanager
 from sshtunnel import SSHTunnelForwarder
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import pandas as pd
 
 # Load .env
@@ -11,7 +11,6 @@ SSH_HOST = config('SSH_HOST', default=None)
 SSH_PORT = config('SSH_PORT', default=22, cast=int)
 SSH_USER = config('SSH_USER', default='prominence')
 SSH_KEY_PATH = os.path.expanduser(config('SSH_KEY_PATH', default=''))
-SSH_KEY = config('SSH_KEY')
 
 DB_HOST = config('DB_HOST')
 DB_PORT = config('DB_PORT', cast=int)
@@ -64,7 +63,7 @@ def query_to_df(query: str, display_all: bool=True, local: bool=False) -> pd.Dat
 @contextmanager
 def get_db_connection():
     """Context manager for database connection with optional SSH tunnel"""
-    if USE_SSH_TUNNEL and SSH_HOST and SSH_KEY:
+    if USE_SSH_TUNNEL and SSH_HOST:
         if not os.path.exists(SSH_KEY_PATH):
             raise FileNotFoundError(f"SSH key not found: {SSH_KEY_PATH}")
         with SSHTunnelForwarder(
@@ -94,3 +93,40 @@ def get_db_connection():
             yield conn
         finally:
             conn.close()
+
+
+def check_db_connection() -> bool:
+    """
+    Check if the database connection can be established.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        if USE_SSH_TUNNEL and SSH_HOST and SSH_KEY_PATH:
+            if not os.path.exists(SSH_KEY_PATH):
+                raise FileNotFoundError(f"SSH key not found: {SSH_KEY_PATH}")
+            with SSHTunnelForwarder(
+                    (SSH_HOST, SSH_PORT),
+                    ssh_username=SSH_USER,
+                    ssh_private_key=SSH_KEY_PATH,
+                    remote_bind_address=(DB_HOST, DB_PORT)
+            ) as tunnel:
+                connection_string = (
+                        f"postgresql://{DB_USER}:{DB_PASS}@"
+                        f"localhost:{tunnel.local_bind_port}/{DB_NAME}"
+                )
+                engine = create_engine(connection_string)
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+        else:
+            connection_string = (
+                    f"postgresql://{DB_USER}:{DB_PASS}@"
+                    f"{DB_HOST}:{DB_PORT}/{DB_NAME}"
+            )
+            engine = create_engine(connection_string)
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        return True
+    except Exception as e:
+        print(f"Connection failed: {e}")
+        return False
+
