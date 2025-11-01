@@ -123,7 +123,7 @@ logger.addHandler(console_handler)
 # -----------------------------
 # Graceful Shutdown Handler
 # -----------------------------
-# CRITICAL FIX #1: Thread-safe shutdown event instead of boolean flag
+# Thread-safe shutdown event instead of boolean flag
 shutdown_event = threading.Event()
 
 def signal_handler(signum, frame):
@@ -310,6 +310,42 @@ def load_logo(logo_path):
     except Exception as e:
         logger.error(f"Failed to load logo from {logo_path}: {e}")
         return None, None, None
+
+
+# --------------------------------
+# DataFrame Column Validation 
+# (prevents runtime crashes)
+# --------------------------------
+def validate_dataframe_columns(df: pd.DataFrame, required_columns: List[str], context: str = "DataFrame") -> None:
+    """
+    Validate that DataFrame contains all required columns.
+
+    Args:
+        df: DataFrame to validate
+        required_columns: List of column names that must be present
+        context: Description of where/why validation is happening (for error messages)
+
+    Raises:
+        ValueError: If any required columns are missing
+    """
+    if df.empty:
+        logger.debug(f"{context} is empty - skipping column validation")
+        return
+
+    missing_columns = set(required_columns) - set(df.columns)
+
+    if missing_columns:
+        available = ", ".join(df.columns)
+        missing = ", ".join(sorted(missing_columns))
+        error_msg = (
+            f"{context} missing required columns: {missing}. "
+            f"Available columns: {available}. "
+            f"Check SQL query returns all expected columns."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    logger.debug(f"{context} validation passed - all {len(required_columns)} required columns present")
 
 
 # -----------------------------
@@ -788,6 +824,10 @@ def main():
             )
             logger.info(f"Query executed successfully. Found {len(df)} event(s) from database.")
 
+            # VALIDATION: Ensure query returned expected columns before proceeding
+            required_columns = ['id', 'event_name', 'created_at', 'email']
+            validate_dataframe_columns(df, required_columns, context="Events query result")
+
             # Load query to extract type_name and status_name from corresponding IDs defined in .env from file
             type_and_status_sql = load_sql_query(config('SQL_TYPE_AND_STATUS_FILE'))
             type_and_status = text(type_and_status_sql)
@@ -803,6 +843,12 @@ def main():
                     }
             )
             
+            # Validate that type/status query returned expected columns
+            if not df_type_and_status.empty:
+                required_type_status_cols = ['type_name', 'status_name']
+                validate_dataframe_columns(df_type_and_status, required_type_status_cols,
+                                           context="Type/Status query result")
+
             # Validate that ID column exists for link generation and deduplication
             if not df.empty and 'id' not in df.columns:
                 logger.warning("Query result missing 'id' column - event links and deduplication will not work")
