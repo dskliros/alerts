@@ -12,6 +12,7 @@ from src.db_utils import get_db_connection
 from decouple import config
 from sqlalchemy import text
 import pandas as pd
+from pandas.errors import DatabaseError
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import smtplib
@@ -30,9 +31,9 @@ import tempfile
 import shutil
 import os
 
-# -----------------------------
+# ---------------------------------------
 # Project Structure
-# -----------------------------
+# ---------------------------------------
 # Get the project root directory (parent of src/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 QUERIES_DIR = PROJECT_ROOT / 'queries'
@@ -47,9 +48,9 @@ DATA_DIR.mkdir(exist_ok=True)
 # Sent events tracking file
 SENT_EVENTS_FILE = DATA_DIR / 'sent_events.json'
 
-# -----------------------------
+# ---------------------------------------
 # Configuration from .env
-# -----------------------------
+# ---------------------------------------
 SMTP_HOST = config('SMTP_HOST')
 SMTP_PORT = int(config('SMTP_PORT', default=465))
 SMTP_USER = config('SMTP_USER')
@@ -104,9 +105,9 @@ for key, value in required_configs.items():
     if not value:
         raise ValueError(f"Required configuration '{key}' is missing from .env file")
 
-# -----------------------------
+# ---------------------------------------
 # Logging Setup
-# -----------------------------
+# ---------------------------------------
 logger = logging.getLogger('events_alerts')
 logger.setLevel(logging.INFO)
 handler = RotatingFileHandler(LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT)
@@ -120,9 +121,9 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 
-# -----------------------------
+# ---------------------------------------
 # Graceful Shutdown Handler
-# -----------------------------
+# ---------------------------------------
 # Thread-safe shutdown event instead of boolean flag
 shutdown_event = threading.Event()
 
@@ -136,9 +137,9 @@ signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
 
-# -----------------------------
+# ---------------------------------------
 # Sent Events Tracking
-# -----------------------------
+# ---------------------------------------
 def load_sent_events() -> dict:
     """
     Load the dictionary of event IDs that have already been sent with timestamps.
@@ -275,9 +276,9 @@ def filter_unsent_events(df: pd.DataFrame, sent_events: dict) -> pd.DataFrame:
     return unsent_df
 
 
-# -----------------------------
+# ---------------------------------------
 # Image Handling
-# -----------------------------
+# ---------------------------------------
 def load_logo(logo_path):
     """
     Load logo file for email attachment.
@@ -312,10 +313,10 @@ def load_logo(logo_path):
         return None, None, None
 
 
-# --------------------------------
+# ------------------------------------------
 # DataFrame Column Validation 
 # (prevents runtime crashes)
-# --------------------------------
+# ------------------------------------------
 def validate_dataframe_columns(df: pd.DataFrame, required_columns: List[str], context: str = "DataFrame") -> None:
     """
     Validate that DataFrame contains all required columns.
@@ -348,9 +349,9 @@ def validate_dataframe_columns(df: pd.DataFrame, required_columns: List[str], co
     logger.debug(f"{context} validation passed - all {len(required_columns)} required columns present")
 
 
-# -----------------------------
+# ---------------------------------------
 # SQL Query Loader
-# -----------------------------
+# ---------------------------------------
 def load_sql_query(query_file='EventHotWork.sql') -> str:
     """
     Load SQL query from queries directory with path traversal protection.
@@ -400,9 +401,9 @@ def load_sql_query(query_file='EventHotWork.sql') -> str:
         raise
 
 
-# -----------------------------
+# ---------------------------------------
 # Teams Message Function
-# -----------------------------
+# ---------------------------------------
 def send_teams_message(df, run_time):
     """Send formatted message to Microsoft Teams channel"""
     if not TEAMS_WEBHOOK_URL:
@@ -428,7 +429,7 @@ def send_teams_message(df, run_time):
             summary_section.activitySubtitle(run_time.strftime('%A, %B %d, %Y at %H:%M %Z'))
             summary_section.addFact("Type", "Permit")
             summary_section.addFact("Period", f"Last {EVENT_LOOKBACK_DAYS} days")
-            summary_section.addFact("Frequency", f"{SCHEDULE_FREQUENCY} hours")
+            summary_section.addFact("Frequency", f"{duration(SCHEDULE_FREQUENCY)}")
             summary_section.addFact("Results", f"**{len(df)}** event{'s' if len(df) != 1 else ''}")
             teams_message.addSection(summary_section)
 
@@ -470,9 +471,9 @@ def send_teams_message(df, run_time):
         raise
 
 
-# -----------------------------
+# ---------------------------------------
 # Email Template Functions
-# -----------------------------
+# ---------------------------------------
 def get_event_id_name(type_id: int, filename='get_events_name.sql') -> tuple:
     """
     Fetch event type name from event_types table for a given type_id.
@@ -669,7 +670,7 @@ def make_html(df, run_time, df_type_and_status=pd.DataFrame(), has_company_logo=
         <div class="metadata">
             <strong>Report Generated:</strong> {run_time.strftime('%A, %B %d, %Y at %H:%M %Z')}<br>
             <strong>Query Criteria:</strong> Type: {type_name}, Status: {status_name}, Lookback: {EVENT_LOOKBACK_DAYS} day{'' if EVENT_LOOKBACK_DAYS == 1 else 's'}<br>
-            <strong>Frequency:</strong> {SCHEDULE_FREQUENCY} hours<br>
+            <strong>Frequency:</strong> {duration(SCHEDULE_FREQUENCY)}<br>
             <strong>Results Found:</strong> <span class="count-badge">{len(df)}</span>
         </div>
         <table>
@@ -713,9 +714,9 @@ def make_html(df, run_time, df_type_and_status=pd.DataFrame(), has_company_logo=
     return event_ids, html
 
 
-# -----------------------------
+# ---------------------------------------
 # Email Sending Function
-# -----------------------------
+# ---------------------------------------
 def send_email(subject: str, plain_text: str, html_content: str, recipients: List[str]) -> None:
     """Send email with both plain text and HTML versions, and embedded logo"""
     if not recipients:
@@ -784,13 +785,13 @@ def send_email(subject: str, plain_text: str, html_content: str, recipients: Lis
         raise
 
 
-# -----------------------------
+# ---------------------------------------
 # Main Logic
-# -----------------------------
+# ---------------------------------------
 def main():
     """Main execution function"""
-    logger.info("=" * 60)
-    logger.info("Events Alerts - Run Started")
+    logger.info("━" * 60)
+    logger.info("▶ RUN STARTED")
     
     run_time = datetime.now(tz=LOCAL_TZ)
     logger.info(f"Current time (Europe/Athens): {run_time.isoformat()}")
@@ -800,16 +801,17 @@ def main():
         sent_events = load_sent_events()
         
         # Connect to database
-        logger.info("Establishing database connection...")
+        logger.info("--> ESTABLISHING DATABASE CONNECTION:")
         with get_db_connection() as conn:
-            logger.info("Database connection established successfully")
+            logger.info("✓ Connection Successful")
             
             # Load query from file
             query_sql = load_sql_query(config('SQL_QUERY_FILE'))
             query = text(query_sql) 
 
             # Execute Admin Query
-            logger.info(f"Executing query: type_id={EVENT_TYPE_ID}, status_id={EVENT_STATUS_ID}, name_filter='%{EVENT_NAME_FILTER}%', name_excluded='%{EVENT_EXCLUDE}%', lookback_days={EVENT_LOOKBACK_DAYS}")
+            logger.info(f"--> CONSTRUCTING DATAFRAME:")
+            logger.info(f"Query parameters: id={EVENT_TYPE_ID}, status={EVENT_STATUS_ID}, include='%{EVENT_NAME_FILTER}%', exclude='%{EVENT_EXCLUDE}%', lookback={EVENT_LOOKBACK_DAYS}")
             
             df = pd.read_sql_query(
                 query, 
@@ -822,7 +824,7 @@ def main():
                     'lookback_days': EVENT_LOOKBACK_DAYS
                 }
             )
-            logger.info(f"Query executed successfully. Found {len(df)} event(s) from database.")
+            logger.info("✓ Construction Successful: found {len(df)} event{'s' if len(df)>1 else ''}.")
 
             # VALIDATION: Ensure query returned expected columns before proceeding
             required_columns = ['id', 'event_name', 'created_at', 'email']
@@ -1021,14 +1023,59 @@ def main():
             else:
                 logger.warning("No notifications were sent successfully. Event IDs will NOT be marked as sent.")
 
-            
+    except (ConnectionError, smtplib.SMTPException) as e:
+        # Network/SMTP errors - might be transient, log but don't exit
+        logger.error(f"Network or SMTP error (may be transient): {e}")
+        logger.info("This error may resolve on next scheduled run")
+        # Don't sys.exit(1) - let scheduler retry
+        
+    except (ValueError, FileNotFoundError) as e:
+        # Configuration/file errors - need immediate attention
+        logger.critical(f"Configuration or file error (requires fix): {e}")
+        logger.critical("Service will continue but alerts are not being sent!")
+        # Don't sys.exit(1) - keep running in case config gets fixed
+        
+    except KeyError as e:
+        # Missing dictionary key - usually a code bug
+        logger.critical(f"Unexpected KeyError (possible code bug): {e}")
+        logger.critical("This may indicate a code issue or unexpected data format")
+        import traceback
+        logger.critical(traceback.format_exc())
+        
+    except pd.errors.DatabaseError as e:
+        # Database-specific errors
+        logger.error(f"Database error: {e}")
+        logger.info("Check database connection, credentials, and SSH tunnel")
+        
+    except json.JSONDecodeError as e:
+        # JSON parsing errors (corrupted tracking file)
+        logger.error(f"JSON decode error in tracking file: {e}")
+        logger.info("Tracking file may be corrupted - will reset on next run")
+        
+    except PermissionError as e:
+        # File permission issues
+        logger.critical(f"Permission error (check file/directory permissions): {e}")
+        logger.critical("Service needs read/write access to data/, logs/, media/ directories")
+        
     except Exception as e:
-        logger.exception(f"Error during execution: {e}")
-        sys.exit(1)
-    
+        # Truly unexpected errors - these are the ones we want to know about
+        logger.exception(f"UNEXPECTED ERROR - Please investigate: {e}")
+        import traceback
+        logger.critical("Full traceback:")
+        logger.critical(traceback.format_exc())
+        # For unexpected errors in production, you might want to send alert to monitoring system
+        
     finally:
-        logger.info("Events Alerts - Run Completed")
-        logger.info("=" * 60)
+        logger.info("◼ RUN COMPLETE")
+        logger.info("━" * 60)            
+
+
+def duration(hours: float) -> str:
+    "Converts float representation of hours to the format #h #m #s"
+    H = str(pd.Timedelta(hours=hours).components.hours)+'h ' if pd.Timedelta(hours=hours).components.hours else ' '
+    M = str(pd.Timedelta(hours=hours).components.minutes)+'m ' if pd.Timedelta(hours=hours).components.minutes else ' '
+    S = str(pd.Timedelta(hours=hours).components.seconds)+'s' if pd.Timedelta(hours=hours).components.seconds else ' '
+    return str(H + M + S).strip()
 
 
 def run_scheduler():
@@ -1036,8 +1083,8 @@ def run_scheduler():
     Continuously run the alerts system at intervals specified by SCHEDULE_FREQUENCY.
     Runs immediately on startup, then waits SCHEDULE_FREQUENCY hours between runs.
     """
-    logger.info("=" * 60)
-    logger.info(f"Scheduler Started - Running every {SCHEDULE_FREQUENCY} hour(s)")
+    logger.info("━" * 60)
+    logger.info(f"▶ Scheduler Started - Running every {duration(SCHEDULE_FREQUENCY)}")
 
     while not shutdown_event.is_set():
         try:
@@ -1050,7 +1097,7 @@ def run_scheduler():
 
             # Calculate sleep time in seconds
             sleep_seconds = SCHEDULE_FREQUENCY * 3600
-            logger.info(f"Sleeping for {SCHEDULE_FREQUENCY} hour(s) ({sleep_seconds} seconds)...")
+            logger.info(f"Sleeping for {duration(SCHEDULE_FREQUENCY)}")
             logger.info(f"Next run scheduled at: {(datetime.now(tz=LOCAL_TZ) + timedelta(hours=SCHEDULE_FREQUENCY)).strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
             # Use shutdown_event.wait() for efficient interruptible sleep
@@ -1071,9 +1118,9 @@ def run_scheduler():
                     logger.info("Shutdown requested during error recovery wait")
                     break
 
-    logger.info("=" * 60)
-    logger.info("Scheduler Stopped")
-    logger.info("=" * 60)
+    logger.info("━" * 60)
+    logger.info("⏹ Scheduler Stopped")
+    logger.info("━" * 60)
 
 
 # -------------------------------------------------------------------------
