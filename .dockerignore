@@ -49,6 +49,14 @@ temp/
 tmp/
 *.tmp
 
+# Environment variables
+.env
+.env.*
+
+# Secrets
+secrets.env
+*.secret
+
 # Environment file backups
 .env.swp
 .env.swo

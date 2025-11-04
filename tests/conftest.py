@@ -11,6 +11,21 @@ from zoneinfo import ZoneInfo
 from unittest.mock import Mock, MagicMock
 import tempfile
 import shutil
+import os
+
+# Load test environment variables BEFORE importing any src modules
+def pytest_configure(config):
+    """Load test environment variables before tests run"""
+    test_env_file = Path(__file__).parent.parent / '.env.test'
+    
+    if test_env_file.exists():
+        # Load test environment variables
+        with open(test_env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
 
 # Add src to path
 import sys

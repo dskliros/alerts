@@ -40,3 +40,10 @@ htmlcov/
 __pycache__/
 *.pyc
 
+# Secrets
+secrets.env
+*.secret
+secrets-backup.env
+
+# Docker override for local dev
+docker-compose.override.yml

@@ -9,7 +9,7 @@ events_alerts.py
 """
 
 from src.db_utils import get_db_connection, validate_query_file
-from decouple import config
+from src.secrets_utils import get_config
 from sqlalchemy import text
 import pandas as pd
 from pandas.errors import DatabaseError
@@ -51,45 +51,45 @@ SENT_EVENTS_FILE = DATA_DIR / 'sent_events.json'
 # ---------------------------------------
 # Configuration from .env
 # ---------------------------------------
-SMTP_HOST = config('SMTP_HOST')
-SMTP_PORT = int(config('SMTP_PORT', default=465))
-SMTP_USER = config('SMTP_USER')
-SMTP_PASS = config('SMTP_PASS')
+SMTP_HOST = get_config('SMTP_HOST')
+SMTP_PORT = int(get_config('SMTP_PORT', default=465))
+SMTP_USER = get_config('SMTP_USER')
+SMTP_PASS = get_config('SMTP_PASS')
 
-INTERNAL_RECIPIENTS = [s.strip() for s in config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
-PROMINENCE_EMAIL_RECIPIENTS = [s.strip() for s in config('PROMINENCE_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
-SEATRADERS_EMAIL_RECIPIENTS = [s.strip() for s in config('SEATRADERS_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
+INTERNAL_RECIPIENTS = [s.strip() for s in get_config('INTERNAL_RECIPIENTS', '').split(',') if s.strip()]
+PROMINENCE_EMAIL_RECIPIENTS = [s.strip() for s in get_config('PROMINENCE_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
+SEATRADERS_EMAIL_RECIPIENTS = [s.strip() for s in get_config('SEATRADERS_EMAIL_RECIPIENTS', '').split(',') if s.strip()]
 
-ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False, cast=bool)
-SPECIAL_TEAMS_EMAIL = config('SPECIAL_TEAMS_EMAIL', '').strip()
+ENABLE_SPECIAL_TEAMS_EMAIL_ALERT = get_config('ENABLE_SPECIAL_TEAMS_EMAIL_ALERT', default=False, cast=bool)
+SPECIAL_TEAMS_EMAIL = get_config('SPECIAL_TEAMS_EMAIL', '').strip()
 
-TEAMS_WEBHOOK_URL = config('TEAMS_WEBHOOK_URL', default='')
-ENABLE_TEAMS_ALERTS = config('ENABLE_TEAMS_ALERTS', default=False, cast=bool)
-ENABLE_EMAIL_ALERTS = config('ENABLE_EMAIL_ALERTS', default=True, cast=bool)
+TEAMS_WEBHOOK_URL = get_config('TEAMS_WEBHOOK_URL', default='')
+ENABLE_TEAMS_ALERTS = get_config('ENABLE_TEAMS_ALERTS', default=False, cast=bool)
+ENABLE_EMAIL_ALERTS = get_config('ENABLE_EMAIL_ALERTS', default=True, cast=bool)
 
-COMPANY_NAME = config('COMPANY_NAME', default='Company')
-COMPANY_LOGO = MEDIA_DIR / config('COMPANY_LOGO', default='')
-ST_COMPANY_LOGO = MEDIA_DIR / config('ST_COMPANY_LOGO', default='')
+COMPANY_NAME = get_config('COMPANY_NAME', default='Company')
+COMPANY_LOGO = MEDIA_DIR / get_config('COMPANY_LOGO', default='')
+ST_COMPANY_LOGO = MEDIA_DIR / get_config('ST_COMPANY_LOGO', default='')
 
 # CRITICAL FIX #2: Configurable events base URL instead of hardcoded
-EVENTS_BASE_URL = config('EVENTS_BASE_URL', default='https://prominence.orca.tools/events')
+EVENTS_BASE_URL = get_config('EVENTS_BASE_URL', default='https://prominence.orca.tools/events')
 
-LOG_FILE = LOGS_DIR / config('LOG_FILE', default='events_alerts.log')
-LOG_MAX_BYTES = int(config('LOG_MAX_BYTES', default=10_485_760))  # 10MB
-LOG_BACKUP_COUNT = int(config('LOG_BACKUP_COUNT', default=5))
+LOG_FILE = LOGS_DIR / get_config('LOG_FILE', default='events_alerts.log')
+LOG_MAX_BYTES = int(get_config('LOG_MAX_BYTES', default=10_485_760))  # 10MB
+LOG_BACKUP_COUNT = int(get_config('LOG_BACKUP_COUNT', default=5))
 
 # Query configuration (can be moved to .env if needed)
-EVENT_TYPE_ID = int(config('EVENT_TYPE_ID', default=18))    # 18 -> label = permits
-EVENT_STATUS_ID = int(config('EVENT_STATUS_ID', default=3))       # 3 -> progress = for-review
-EVENT_NAME_FILTER = config('EVENT_NAME_FILTER', default='hot')
-EVENT_EXCLUDE = config('EVENT_EXCLUDE', default='vessel')
-EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
+EVENT_TYPE_ID = int(get_config('EVENT_TYPE_ID', default=18))    # 18 -> label = permits
+EVENT_STATUS_ID = int(get_config('EVENT_STATUS_ID', default=3))       # 3 -> progress = for-review
+EVENT_NAME_FILTER = get_config('EVENT_NAME_FILTER', default='hot')
+EVENT_EXCLUDE = get_config('EVENT_EXCLUDE', default='vessel')
+EVENT_LOOKBACK_DAYS = int(get_config('EVENT_LOOKBACK_DAYS', default=17))
 
 # Automation Scheduler Frequency (hours)
-SCHEDULE_FREQUENCY = float(config('SCHEDULE_FREQUENCY', default=1))
+SCHEDULE_FREQUENCY = float(get_config('SCHEDULE_FREQUENCY', default=1))
 
 # Automated Reminder Frequency (days)
-REMINDER_FREQUENCY_DAYS = int(config('REMINDER_FREQUENCY_DAYS', default=30))
+REMINDER_FREQUENCY_DAYS = int(get_config('REMINDER_FREQUENCY_DAYS', default=30))
 
 # Timezone for scheduling & timestamps (Greece)
 LOCAL_TZ = ZoneInfo('Europe/Athens')
@@ -813,7 +813,7 @@ def main():
             logger.info("[OK] Connection Successful")
             
             # Load query from file
-            query_sql = load_sql_query(config('SQL_QUERY_FILE'))
+            query_sql = load_sql_query(get_config('SQL_QUERY_FILE'))
             query = text(query_sql) 
 
             # Execute Admin Query
@@ -838,7 +838,7 @@ def main():
             validate_dataframe_columns(df, required_columns, context="Events query result")
 
             # Load query to extract type_name and status_name from corresponding IDs defined in .env from file
-            type_and_status_sql = load_sql_query(config('SQL_TYPE_AND_STATUS_FILE'))
+            type_and_status_sql = load_sql_query(get_config('SQL_TYPE_AND_STATUS_FILE'))
             type_and_status = text(type_and_status_sql)
 
             # Execute new type and status query

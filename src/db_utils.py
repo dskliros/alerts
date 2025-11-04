@@ -1,6 +1,6 @@
 # src/db_utils.py
 import os
-from decouple import config
+from src.secrets_utils import get_config, get_ssh_key_path
 from contextlib import contextmanager
 from sshtunnel import SSHTunnelForwarder
 from sqlalchemy import create_engine, text
@@ -9,18 +9,19 @@ from pathlib import Path
 import re
 
 # Load .env
-SSH_HOST = config('SSH_HOST', default=None)
-SSH_PORT = config('SSH_PORT', default=22, cast=int)
-SSH_USER = config('SSH_USER', default='prominence')
-SSH_KEY_PATH = os.path.expanduser(config('SSH_KEY_PATH', default=''))
+SSH_HOST = get_config('SSH_HOST', default=None)
+SSH_PORT = get_config('SSH_PORT', default=22, cast=int)
+SSH_USER = get_config('SSH_USER', default='prominence')
+SSH_KEY_PATH = get_ssh_key_path('ssh_ubuntu_key_content', default_path=os.path.expanduser(''), fallback_config_key='SSH_KEY_PATH')
+#SSH_KEY_PATH = get_ssh_key_path('ssh_ubuntu_key_content', default_path='/app/ssh_ubuntu_key')
 
-DB_HOST = config('DB_HOST')
-DB_PORT = config('DB_PORT', cast=int)
-DB_NAME = config('DB_NAME')
-DB_USER = config('DB_USER')
-DB_PASS = config('DB_PASS')
+DB_HOST = get_config('DB_HOST')
+DB_PORT = get_config('DB_PORT', cast=int)
+DB_NAME = get_config('DB_NAME')
+DB_USER = get_config('DB_USER')
+DB_PASS = get_config('DB_PASS')
 
-USE_SSH_TUNNEL = config('USE_SSH_TUNNEL', default=False, cast=bool)
+USE_SSH_TUNNEL = get_config('USE_SSH_TUNNEL', default=False, cast=bool)
 
 
 def validate_query_file(query_path: Path) -> str:

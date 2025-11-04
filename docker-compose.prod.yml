@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  alerts:
+    build: .
+    container_name: alerts-app
+    
+    # Use secrets instead of env_file
+    secrets:
+      # SSH Configuration
+      - ssh_host
+      - ssh_port
+      - ssh_user
+      - ssh_ubuntu_key_content
+      - ssh_key_content
+      
+      # Database Configuration
+      - db_host
+      - db_port
+      - db_name
+      - db_user
+      - db_pass
+      
+      # SMTP Configuration
+      - smtp_host
+      - smtp_port
+      - smtp_user
+      - smtp_pass
+      
+      # Teams Configuration
+      - teams_webhook_url
+      - special_teams_email
+      
+      # Email Recipients
+      - internal_recipients
+      - prominence_email_recipients
+      - seatraders_email_recipients
+    
+    # Environment variables for non-sensitive configuration
+    # These can remain as environment variables
+    environment:
+      # Connection Settings
+      - USE_SSH_TUNNEL=true
+      
+      # Stylistic Choices
+      - COMPANY_NAME=Prominence Maritime S.A.
+      - COMPANY_LOGO=trans_logo_prominence_procreate_small.png
+      - ST_COMPANY_LOGO=trans_logo_seatraders_procreate_small.png
+      
+      # Color Conventions
+      - LIGHT_BLUE_PROMINENCE=#2EA9DE
+      - DARK_BLUE_PROMINENCE=#1A2440
+      - DARK_BLUE_WINGU=#0B4877
+      
+      # Notification Settings
+      - ENABLE_EMAIL_ALERTS=true
+      - ENABLE_TEAMS_ALERTS=false
+      - ENABLE_SPECIAL_TEAMS_EMAIL_ALERT=false
+      
+      # Query Parameters
+      - SQL_QUERY_FILE=EventHotWorksDetails.sql
+      - SQL_TYPE_AND_STATUS_FILE=TypeAndStatus.sql
+      - EVENT_TYPE_ID=18
+      - EVENT_STATUS_ID=6
+      - EVENT_NAME_FILTER=hot
+      - EVENT_EXCLUDE=vessel
+      - EVENT_LOOKBACK_DAYS=300
+      
+      # Scheduler Settings
+      - SCHEDULE_FREQUENCY=0.008
+      - REMINDER_FREQUENCY_DAYS=3
+      
+      # URLs
+      - EVENTS_BASE_URL=https://prominence.orca.tools/events
+      
+      # Logging
+      - LOG_FILE=events_alerts.log
+      - LOG_MAX_BYTES=10485760
+      - LOG_BACKUP_COUNT=5
+      
+      # Indicate Docker environment
+      - DOCKER_ENV=true
+    
+    volumes:
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+      
+      # Mount data directory for sent_events.json persistence
+      - ./data:/app/data
+      
+      # Mount queries directory for easy SQL updates without rebuild
+      - ./queries:/app/queries
+      
+      # Mount media directory for logos
+      - ./media:/app/media
+    
+    # Restart policy for production
+    restart: unless-stopped
+    
+    # Health check to ensure application is working
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.path.insert(0, '/app'); from src.db_utils import check_db_connection; sys.exit(0 if check_db_connection() else 1)"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+    
+    # Resource limits (optional - adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    
+    # Optional: Run on a schedule using cron-like functionality
+    # Uncomment and modify if you want scheduled execution
+    # command: sh -c "while true; do python src/events_alerts.py && sleep 3600; done"
+
+# Define secrets - these reference external secrets created via docker secret create
+secrets:
+  # SSH Secrets
+  ssh_host:
+    external: true
+  ssh_port:
+    external: true
+  ssh_user:
+    external: true
+  ssh_ubuntu_key_content:
+    external: true
+  ssh_key_content:
+    external: true
+  
+  # Database Secrets
+  db_host:
+    external: true
+  db_port:
+    external: true
+  db_name:
+    external: true
+  db_user:
+    external: true
+  db_pass:
+    external: true
+  
+  # SMTP Secrets
+  smtp_host:
+    external: true
+  smtp_port:
+    external: true
+  smtp_user:
+    external: true
+  smtp_pass:
+    external: true
+  
+  # Teams Secrets
+  teams_webhook_url:
+    external: true
+  special_teams_email:
+    external: true
+  
+  # Recipient Secrets
+  internal_recipients:
+    external: true
+  prominence_email_recipients:
+    external: true
+  seatraders_email_recipients:
+    external: true
