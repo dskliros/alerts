@@ -34,8 +34,8 @@ try:
     # Send
     response = test_message.send()
     
-    print(f"✓ Response: {response}")
-    print(f"✓ Message sent! Check your Teams channel.")
+    print(f"[OK] Response: {response}")
+    print(f"[OK] Message sent! Check your Teams channel.")
     
 except Exception as e:
     print(f"ERROR: {e}")

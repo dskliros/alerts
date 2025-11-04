@@ -8,7 +8,7 @@ events_alerts.py
 - Tracks sent event IDs to prevent duplicate notifications
 """
 
-from src.db_utils import get_db_connection
+from src.db_utils import get_db_connection, validate_query_file
 from decouple import config
 from sqlalchemy import text
 import pandas as pd
@@ -363,9 +363,11 @@ def load_sql_query(query_file='EventHotWork.sql') -> str:
         SQL query string
 
     Raises:
-        ValueError: If path is outside queries directory
+        ValueError: If path is outside queries directory or file extension is invalid
         FileNotFoundError: If query file doesn't exist
     """
+    from src.db_utils import validate_query_file
+
     query_path = QUERIES_DIR / query_file
 
     # SECURITY: Validate path is within QUERIES_DIR to prevent path traversal attacks
@@ -383,12 +385,13 @@ def load_sql_query(query_file='EventHotWork.sql') -> str:
         logger.error(f"Path validation failed for query file '{query_file}': {e}")
         raise ValueError(f"Invalid query file path: {query_file}") from e
 
-    if not query_path.exists():
-        raise FileNotFoundError(f"SQL query file not found: {query_path}")
-
+    # Use centralized validation and file reading from db_utils
+    # This ensures:
+    # 1. File exists check
+    # 2. .sql extension validation
+    # 3. Consistent file reading with UTF-8 encoding
     try:
-        with open(query_path, 'r', encoding='utf-8') as f:
-            query_content = f.read().strip()
+        query_content = validate_query_file(query_path)
 
         if not query_content:
             raise ValueError(f"Query file is empty: {query_path}")
@@ -396,6 +399,12 @@ def load_sql_query(query_file='EventHotWork.sql') -> str:
         logger.debug(f"Loaded SQL query from {query_path} ({len(query_content)} bytes)")
         return query_content
 
+    except FileNotFoundError:
+        logger.error(f"SQL query file not found: {query_path}")
+        raise
+    except ValueError as e:
+        logger.error(f"Invalid query file: {e}")
+        raise
     except Exception as e:
         logger.error(f"Failed to read query file {query_path}: {e}")
         raise
@@ -462,12 +471,12 @@ def send_teams_message(df, run_time):
         logger.info(f"Teams API response: {response}")
 
         if response:
-            logger.info(f"✓ Teams message sent successfully to webhook (HTTP {response}, status code {teams_message.last_http_response.status_code})")
+            logger.info(f"[OK] Teams message sent successfully to webhook (HTTP {response}, status code {teams_message.last_http_response.status_code})")
         else:
-            logger.warning(f"⚠ Teams returned success but no response code - message may not have been delivered")
+            logger.warning(f"[!!!] Teams returned success but no response code - message may not have been delivered")
 
     except Exception as e:
-        logger.exception(f"✗ Failed to send Teams message: {e}")
+        logger.exception(f"[EXC] Failed to send Teams message: {e}")
         raise
 
 
@@ -779,9 +788,9 @@ def send_email(subject: str, plain_text: str, html_content: str, recipients: Lis
                 smtp.login(SMTP_USER, SMTP_PASS)
                 smtp.send_message(msg)
 
-        logger.info(f"✓ Email sent successfully to {len(recipients)} recipient{'' if len(recipients) == 1 else 's'}: {', '.join(recipients)}")
+        logger.info(f"[OK] Email sent successfully to {len(recipients)} recipient{'' if len(recipients) == 1 else 's'}: {', '.join(recipients)}")
     except Exception as e:
-        logger.exception(f"✗ Failed to send email: {e}")
+        logger.exception(f"[EXC] Failed to send email: {e}")
         raise
 
 
@@ -803,7 +812,7 @@ def main():
         # Connect to database
         logger.info("--> ESTABLISHING DATABASE CONNECTION:")
         with get_db_connection() as conn:
-            logger.info("✓ Connection Successful")
+            logger.info("[OK] Connection Successful")
             
             # Load query from file
             query_sql = load_sql_query(config('SQL_QUERY_FILE'))
@@ -824,7 +833,7 @@ def main():
                     'lookback_days': EVENT_LOOKBACK_DAYS
                 }
             )
-            logger.info("✓ Construction Successful: found {len(df)} event{'s' if len(df)>1 else ''}.")
+            logger.info(f"[OK] Construction Successful: found {len(df)} event{'s' if len(df)>1 else ''}.")
 
             # VALIDATION: Ensure query returned expected columns before proceeding
             required_columns = ['id', 'event_name', 'created_at', 'email']

@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from sshtunnel import SSHTunnelForwarder
 from sqlalchemy import create_engine, text
 import pandas as pd
+from pathlib import Path
+import re
 
 # Load .env
 SSH_HOST = config('SSH_HOST', default=None)
@@ -19,6 +21,21 @@ DB_USER = config('DB_USER')
 DB_PASS = config('DB_PASS')
 
 USE_SSH_TUNNEL = config('USE_SSH_TUNNEL', default=False, cast=bool)
+
+
+def validate_query_file(query_path: Path) -> str:
+       """
+       Safely load and validate SQL query from file.
+       Only accepts .sql files from the queries directory.
+       """
+       if not query_path.exists():
+           raise FileNotFoundError(f"Query file not found: {query_path}")
+       
+       if query_path.suffix != '.sql':
+           raise ValueError("Only .sql files are allowed")
+       
+       with open(query_path, 'r', encoding='utf-8') as f:
+           return f.read()
 
 
 def query_to_df(query: str, display_all: bool=True, local: bool=False) -> pd.DataFrame:
