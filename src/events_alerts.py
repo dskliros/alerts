@@ -366,8 +366,6 @@ def load_sql_query(query_file='EventHotWork.sql') -> str:
         ValueError: If path is outside queries directory or file extension is invalid
         FileNotFoundError: If query file doesn't exist
     """
-    from src.db_utils import validate_query_file
-
     query_path = QUERIES_DIR / query_file
 
     # SECURITY: Validate path is within QUERIES_DIR to prevent path traversal attacks
