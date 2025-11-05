@@ -1,4 +1,4 @@
-feat: Complete Docker Secrets migration and production deployment
+# README.md
 
 ## Summary
 Successfully migrated from .env file configuration to Docker Secrets for
