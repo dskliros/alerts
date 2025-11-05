@@ -28,6 +28,9 @@ RUN mkdir -p logs data
 # Set Python to run in unbuffered mode (see logs in real-time)
 ENV PYTHONUNBUFFERED=1
 
+# Environment variable to help secrets_utils.py detect it is running in a docker container
+ENV DOCKER_ENV=true
+
 # Run with scheduling enabled by default
 CMD ["python", "-m", "src.events_alerts"]
 

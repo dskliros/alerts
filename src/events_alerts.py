@@ -271,7 +271,8 @@ def filter_unsent_events(df: pd.DataFrame, sent_events: dict) -> pd.DataFrame:
     
     filtered_count = len(df) - len(unsent_df)
     if filtered_count > 0:
-        logger.info(f"Filtered out {filtered_count} previously sent event(s). {len(unsent_df)} new event(s) remain.")
+        logger.info(f"--> FILTER EVENTS:")
+        ligger.info(f"{filtered_count} event{'' if len(unsent_df) == 1 else 's'} already sent, {len(unsent_df)} new event{'' if len(unsent_df) == 1 else 's'} remain.")
     
     return unsent_df
 

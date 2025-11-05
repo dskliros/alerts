@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 secrets_utils.py
-Unified configuration loader that supports both:
-- Docker Secrets (production) - reads from /run/secrets/
-- Environment variables via python-decouple (local development) - reads from .env
+Smart config loader that automatically detects if it's running in Docker,
+and reads from /run/secrets/ if available, otherwise falls back to .env
 
 Usage:
     from src.secrets_utils import get_config

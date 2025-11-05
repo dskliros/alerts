@@ -44,6 +44,7 @@ __pycache__/
 secrets.env
 *.secret
 secrets-backup.env
+secrets.template.txt
 
 # Docker override for local dev
 docker-compose.override.yml

@@ -503,7 +503,7 @@ docker compose logs alerts | grep -i "failed\|error\|denied"
 
 ## Advanced Configuration
 
-### Enable Scheduled Execution
+### Enable Scheduled Execution ([XXX] consider deleting this subsection)
 
 To run the alerts on a schedule (e.g., every hour):
 

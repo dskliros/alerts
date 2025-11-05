@@ -49,13 +49,16 @@ temp/
 tmp/
 *.tmp
 
-# Environment variables
+# Environment variables (!! prevents accidentally copying production credentials into image)
 .env
 .env.*
 
 # Secrets
 secrets.env
 *.secret
+
+# Ensure ssh keys are ignored
+.ssh
 
 # Environment file backups
 .env.swp
