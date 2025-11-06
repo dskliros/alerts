@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Ste timezone
+ENV TZ=Europe/Athens
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # Copy requirements first (for Docker layer caching)
 COPY requirements.txt .
 
@@ -21,6 +25,7 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY queries/ ./queries/
 COPY media/ ./media/
+COPY tests/ ./tests/
 
 # Create necessary directories
 RUN mkdir -p logs data

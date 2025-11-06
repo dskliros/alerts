@@ -89,7 +89,7 @@ EVENT_LOOKBACK_DAYS = int(config('EVENT_LOOKBACK_DAYS', default=17))
 SCHEDULE_FREQUENCY = float(config('SCHEDULE_FREQUENCY', default=1))
 
 # Automated Reminder Frequency (days)
-REMINDER_FREQUENCY_DAYS = int(config('REMINDER_FREQUENCY_DAYS', default=30))
+REMINDER_FREQUENCY_DAYS = float(config('REMINDER_FREQUENCY_DAYS', default=30))
 
 # Timezone for scheduling & timestamps (Greece)
 LOCAL_TZ = ZoneInfo('Europe/Athens')

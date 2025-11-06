@@ -61,3 +61,6 @@ docker-compose.yml
 
 # Data files (mount as volume instead)
 data/*.csv
+
+
+secrets.env

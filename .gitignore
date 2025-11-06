@@ -40,3 +40,4 @@ htmlcov/
 __pycache__/
 *.pyc
 
+secrets.env
