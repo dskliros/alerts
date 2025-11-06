@@ -12,7 +12,7 @@ services:
       - /Users/prominence/.ssh/prominence_user_key_rsa4096:/app/ssh_key:ro
       - /Users/prominence/.ssh/datalab_prominence_prod.pem:/app/ssh_ubuntu_key:ro
 
-    # restart: unless-stopped    
+    restart: unless-stopped    
     #
     # Optional: Run on a schedule using cron-like functionality
     # Uncomment and modify the command below if you want scheduled execution
