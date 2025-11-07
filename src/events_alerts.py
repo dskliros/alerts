@@ -851,6 +851,7 @@ def main():
                         'status_id': EVENT_STATUS_ID
                     }
             )
+            logger.info(f"--> CHECKING STATUS:")
             
             # Validate that type/status query returned expected columns
             if not df_type_and_status.empty:
@@ -882,7 +883,7 @@ def main():
             logger.info(f"{len(df)} new event(s) to be sent.")
 
             # NOW create company-specific DataFrames from the FILTERED df
-            logger.info('Preparing PROMINENCE notification DataFrame')
+            logger.info('... PROMINENCE filter ...')
             df_prominence = df[df['email'].str.contains('prominence', case=False, na=False)].copy()
             if not df_prominence.empty:
                 df_prominence = df_prominence.drop(columns=['email'])
@@ -890,7 +891,7 @@ def main():
             else:
                 logger.info("No prominence events to send")
 
-            logger.info('Preparing SEATRADERS notification DataFrame')
+            logger.info('... SEATRADERS filter ...')
             df_seatraders = df[df['email'].str.contains('seatraders', case=False, na=False)].copy()
             if not df_seatraders.empty:
                 df_seatraders = df_seatraders.drop(columns=['email'])

@@ -55,11 +55,13 @@ def empty_event_data():
 
 
 @pytest.fixture
-def sample_sent_events():
-    """Sample sent events dictionary"""
+def sample_sent_events(local_tz):
+    """Sample sent events with timestamps"""
+    from datetime import datetime, timedelta
+    now = datetime.now(local_tz)
     return {
-        99: '2025-10-28T10:00:00+02:00',
-        100: '2025-10-28T15:30:00+02:00'
+        99: (now - timedelta(days=5)).isoformat(),  # 5 days ago
+        100: (now - timedelta(days=3)).isoformat()  # 3 days ago
     }
 
 

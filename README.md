@@ -1,55 +1,55 @@
 # Events Alerts System
 
-**Automated email notifications for hot work permit events from PostgreSQL database.**
+**Automated (currently, 7 Nov 2025, email only) notifications for events, defaulting to "Hot Work" Permit Events**
 
-Monitor your database for specific events (hot work permits) and automatically send email notifications to designated recipients. Runs continuously with configurable intervals and prevents duplicate notifications.
+Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configurable in `.env`) and automatically sends notifications to designated recipients (specified in `.env`). Runs continuously with configurable intervals (denoted by `SCHEDULE_FREQUENCY` in `.env`) and prevents duplicate notifications provided a certain number of days (denoted by `REMINDER_FREQUENCY_DAYS` in `.env`) has not passed.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose installed
-- PostgreSQL database access
-- SMTP email server credentials
-- SSH access (if database requires SSH tunnel)
+- Docker and Docker Compose installed
+- ORCA Core (PostgreSQL) database access (configured in `.env`)
+- SMTP email server credentials (configured in `.env`)
+- SSH access if DB requires SSH Tunnel (configured in `.env`), but not necessary if run from within a remote ubuntu server that has direct DB access
 
-### 1. Clone & Setup
+### 1. Close & Setup
 
+Note: currently, it is the `easy_prod` branch that is being used and updated, not `main`
 ```bash
-git clone <repository-url>
+git clone https://github.com/dskliros/alerts.git
 cd events-alerts
 ```
 
 ### 2. Configure Environment
 
 ```bash
-# Copy the example environment file
+# All settings are specified in a `.env`. **Never commit `.env` to git/github.**
+# Copy the example from .env.example and edit as necessary:
 cp .env.example .env
-
-# Edit with your credentials
-vim .env  # or nano, code, etc.
+vi .env
 ```
 
-### 3. Add SSH Keys (if using SSH tunnel)
+### 3. Add SSH Keys
 
-Place your SSH private keys in the project root or update paths in `docker-compose.yml`:
+Place private SSH keys in project root or update paths in `docker-compose.yml`:
 ```yaml
 volumes:
-  - ~/.ssh/your_key.pem:/app/ssh_key:ro
-  - ~/.ssh/your_ubuntu_key.pem:/app/ssh_ubuntu_key:ro
+    - ~/.ssh/your_key.pem:/app/ssh_key:ro
+    - ~/.ssh/your_ubuntu_key.pem:/app/ssh_ubuntu_key:ro
 ```
 
-### 4. Run Locally (Development)
+### 4. Run Locally (Dev)
 
 ```bash
 # Build and run in foreground
 docker compose up --build
 
-# Run in background (detached mode)
+# Build and run in background (detached mode)
 docker compose up --build -d
 
-# View logs
+# View logs (-f flag for continuously updated)
 docker compose logs -f
 
 # Stop
@@ -62,124 +62,112 @@ docker compose down
 # SSH into your server
 ssh user@your-server
 
-# Clone and configure
+# Clone and Configure
 cd /opt/events-alerts
-git pull  # or clone
+git pull # or clone
 
-# Set proper user permissions in .env
-export UID=$(id -u)
-export GID=$(id -g)
+# Set user permissions
+echo UID=$(id -u)
+echo GID=$(id -g)
+# ... and place resulting values in .env
 
 # Run in detached mode
 docker compose up --build -d
 
-# Enable auto-restart on reboot (optional)
-# Add to docker-compose.yml: restart: unless-stopped
-```
-
----
-
-## Configuration
-
-All settings are in `.env` file. **Never commit this file to git.**
-
-### Essential Configuration
-
-```bash
-# ----------------------------------------------------------------
-# Database Connection
-# ----------------------------------------------------------------
-DB_HOST=db_host.com
-DB_PORT=5432
-DB_NAME=db_name
-DB_USER=db_user
-DB_PASS=dp_pass
-
-# ----------------------------------------------------------------
-# SSH Tunnel (set to false if server is on same network as DB)
-# ----------------------------------------------------------------
-USE_SSH_TUNNEL=true
-SSH_HOST=your-jump-host.com
-SSH_PORT=22
-SSH_USER=ubuntu
-SSH_KEY_PATH=/app/ssh_key                   # Path inside container
-SSH_UBUNTU_KEY_PATH=/app/ssh_ubuntu_key
-
-# ----------------------------------------------------------------
-# Email Configuration (SMTP)
-# ----------------------------------------------------------------
-SMTP_HOST=XX.XXX.XXX.XX
-SMTP_PORT=465
-SMTP_USER=user@seatraders.com
-SMTP_PASS=XXXXXXXXXXXXXXXXXXXXXXXXX
-
-# ----------------------------------------------------------------
-# Email Recipients
-# ----------------------------------------------------------------
-INTERNAL_RECIPIENTS=user@mail.com,user2@mail.com
-PROMINENCE_EMAIL_RECIPIENTS=user1@prominencemaritime.com,user3@prominencemaritime.com
-SEATRADERS_EMAIL_RECIPIENTS=user2@seatraders.com
-
-# ----------------------------------------------------------------
-# Query Parameters
-# ----------------------------------------------------------------
-EVENT_TYPE_ID=18                    # Permits event type
-EVENT_STATUS_ID=3                   # Closed status (3 = For Review)
-EVENT_NAME_FILTER=hot               # Event name must contain "hot"
-EVENT_EXCLUDE=vessel                # Exclude if event name contains "vessel"
-EVENT_LOOKBACK_DAYS=4               # Search last 4 days
-
-# ----------------------------------------------------------------
-# Scheduler Settings
-# ----------------------------------------------------------------
-SCHEDULE_FREQUENCY=0.5          # Hours between checks (30 min) (floats allowed)
-REMINDER_FREQUENCY_DAYS=3       # Resend after 3 days (floats allowed)
-
-# ----------------------------------------------------------------
-# Feature Flags
-# ----------------------------------------------------------------
-ENABLE_EMAIL_ALERTS=true
-ENABLE_TEAMS_ALERTS=false
-ENABLE_SPECIAL_TEAMS_EMAIL=false
+# Autorestart enabled by default upon reboot
+# specified in docker-compose.yml: restart: unless-stopped
 ```
 
 ---
 
 ## Project Structure
-
 ```
 events-alerts/
-├── src/
-│   ├── events_alerts.py            # Main application logic
-│   └── db_utils.py                 # Database connection utilities
-├── queries/
-│   ├── EventHotWork.sql            # Main event query
-│   └──── TypeAndStatus.sql         # Event type/status lookup
-├── tests/
-│   ├── conftest.py                 # Pytest configuration
-│   ├── test_*.py                   # Unit tests
-│   └── run_tests.sh                # Test runner script
-├── scripts/
-│   ├── email_checker.py            # Verify SMTP settings
-│   └── verify_teams_webhook.py     # Test Teams integration
-├── media/                          # Email logos
-├── data/
-│   └── sent_events.json            # Tracking sent events
-├── logs/
-│   └── events_alerts.log           # Application logs
-├── docker-compose.yml              # Docker configuration
-├── Dockerfile                      # Container definition
-├── requirements.txt                # Python dependencies
-├── .env                            # Configuration (DO NOT COMMIT)
-├── .env.example                    # Configuration template
-└── README.md                       # This file
+├── .git
+│   ├── branches
+│   ├── hooks
+│   ├── info
+│   ├── logs
+│   ├── objects
+│   ├── refs
+│   ├── COMMIT_EDITMSG
+│   ├── FETCH_HEAD
+│   ├── HEAD
+│   ├── ORIG_HEAD
+│   ├── config
+│   ├── description
+│   ├── index
+│   └── packed-refs
+├── data
+│   └── sent_events.json                    # Tracking sent events
+├── docs
+│   ├── AlertDev.docx
+│   └── example.pdf
+├── logs
+│   └── events_alerts.log                   # Application logs
+├── media                                   # Email company logos
+│   ├── logo_prominence_maritime_teliko_new_1.png
+│   ├── trans-logo-blue.png
+│   ├── trans_logo_prominence_procreate_small.png
+│   ├── trans_logo_prominence_procreate_small_flipped.png
+│   └── trans_logo_seatraders_procreate_small.png
+├── queries
+│   ├── EventHotWorksDetails.sql            # Main events query
+│   ├── TypeAndStatus.sql                   # Type and status lookup
+│   └── get_events_name.sql                 # Events name lookup
+├── scripts
+│   ├── email_checker.py                    # Verify STMP settings
+│   └── verify_teams_webhook.py             # Verify Teams integration
+├── src
+│   ├── __init__.py
+│   ├── db_utils.py                         # Database connection utilities
+│   └── events_alerts.py                    # Main application logic
+├── tests
+│   ├── conftest.py                         # Pytest configuration
+│   ├── run_tests.sh                        # Test runner script
+│   └── test_*.py                           # Unit tests
+├── .dockerignore
+├── .env                                    # CONFIGURATION (DO NOT COMMIT)
+├── .env.example                            # Configuration template
+├── .gitignore
+├── Dockerfile                              # Container definition
+├── README.md                               # This file
+├── docker-compose.yml                      # Docker configuration
+├── pytest.ini
+└── requirements.txt                        # Python dependencies
 ```
 
----
+## Common Tasks
 
-## Common Tasks
+### Rebuild Container from Scratch
 
-### View Logs
+```bash
+# Stop and remove containers
+docker compose down
+
+# Rebuild image from scratch
+docker compose build --no-cache
+
+# Start with new containers (-d in detached mode)
+docker compose up -d
+```
+
+### Verify User and Group IDs
+
+```bash
+# These, 
+echo id -u
+echo id -g
+
+# .. which are specified in .env and
+# denoted by UID and GID should match with:
+docker exec alerts-app id
+
+# If they don't match, rebuild container from scratch (as specified above), 
+# see also below.
+```
+
+### View logs
 
 ```bash
 # Real-time logs
@@ -192,10 +180,10 @@ docker compose logs --tail 100
 docker compose logs --since 30m
 ```
 
-### Update Configuration
+### Update config
 
 ```bash
-# Edit .env file
+# Edit .env
 vi .env
 
 # Restart to apply changes
@@ -212,267 +200,4 @@ docker compose ps
 docker ps -a
 ```
 
-### Manual Testing
 
-```bash
-# Test SMTP connection
-docker compose run --rm alerts python scripts/email_checker.py
-
-# Run test suite
-docker compose run --rm alerts pytest
-
-# Run specific test
-docker compose run --rm alerts pytest tests/test_email_functions.py -v
-```
-
-### Debugging
-
-```bash
-# Enter container shell
-docker compose exec alerts /bin/bash
-
-# Check environment variables
-docker compose exec alerts env | grep DB_
-
-# Test database connection
-docker compose exec alerts python -c "from src.db_utils import check_db_connection; print(check_db_connection())"
-```
-
----
-
-## Testing (not fully up-to-date)
-
-### Run All Tests
-
-```bash
-# With coverage report
-docker compose run --rm alerts pytest --cov=src --cov-report=term-missing
-
-# Verbose output
-docker compose run --rm alerts pytest -v
-
-# Stop on first failure
-docker compose run --rm alerts pytest -x
-```
-
-### Test Categories
-
-```bash
-# Unit tests only
-pytest -m unit
-
-# Integration tests only
-pytest -m integration
-
-# Skip slow tests
-pytest -m "not slow"
-```
-
----
-
-## Troubleshooting
-
-### Database Connection Issues
-
-**Problem**: `Connection refused` or `timeout`
-
-**Solutions**:
-1. Verify `USE_SSH_TUNNEL` setting matches your network topology
-2. Check SSH key paths in `docker-compose.yml`
-3. Confirm database credentials in `.env`
-4. Test connection: `docker compose exec alerts python -c "from src.db_utils import check_db_connection; print(check_db_connection())"`
-
-### Email Not Sending
-
-**Problem**: No emails received
-
-**Solutions**:
-1. Check `ENABLE_EMAIL_ALERTS=true` in `.env`
-2. Verify SMTP credentials
-3. Run: `docker compose run --rm alerts python scripts/email_checker.py`
-4. Check logs: `docker compose logs | grep "Email sent"`
-
-### Duplicate Emails
-
-**Problem**: Receiving same notification repeatedly
-
-**Solutions**:
-1. Check `REMINDER_FREQUENCY_DAYS` - may be too short
-2. Verify `data/sent_events.json` is being persisted (volume mount)
-3. Ensure container user has write permissions to `data/` folder
-
-### Container Exits Immediately
-
-**Problem**: Container starts then stops
-
-**Solutions**:
-1. Check logs: `docker compose logs`
-2. Verify `.env` file exists and is readable
-3. Ensure all required environment variables are set
-4. Check file permissions on mounted volumes
-
-### No Events Found
-
-**Problem**: Logs show "No events found matching criteria"
-
-**Solutions**:
-1. Verify query parameters in `.env`:
-   - `EVENT_TYPE_ID` (18 = Permits)
-   - `EVENT_STATUS_ID` (3 = For Review, 6 = Closed)
-   - `EVENT_NAME_FILTER` and `EVENT_EXCLUDE`
-2. Increase `EVENT_LOOKBACK_DAYS`
-3. Test query directly in database client
-
----
-
-## Security Best Practices
-
-### DO:
-- Keep `.env` file out of version control (already in `.gitignore`)
-- Use SSH keys with proper permissions (`chmod 600`)
-- Rotate SMTP passwords regularly
-- Use app-specific passwords for Gmail
-- Set `restart: unless-stopped` for production
-
-### DO NOT:
-- Commit `.env` or SSH keys to git
-- Share SMTP credentials via insecure channels
-- Use root user in containers (already using `${UID}:${GID}`)
-- Disable SSL/TLS for SMTP connections
-
----
-
-## Monitoring
-
-### Key Metrics to Watch
-
-```bash
-# Events found per run
-docker compose logs | grep "Construction Successful"
-
-# Emails send
-docker compose logs | grep "Email sent successfully"
-
-# Tracking cleanup
-docker compose logs | grep "Removed"
-
-# Errors
-docker compose logs | grep ERROR
-```
-
-### Log Locations
-
-- **Application logs**: `logs/events_alerts.log`
-- **Docker logs**: `docker compose logs`
-- **Tracking data**: `data/sent_events.json`
-
----
-
-## Deployment Workflow
-
-### Local Development → Remote Production
-
-```bash
-# 1. Develop locally
-docker compose up
-
-# 2. Test changes (not fully up-to-date)
-pytest tests/ -v
-
-# OR
-
-# Test changes (not fully up-to-date)
-docker compose run alerts
->> pytest tests/ -v
-
-# 3. Commit and push
-git add .
-git commit -m "Description of changes"
-git push origin main
-
-# 4. Deploy to server
-ssh user@remote-server
-cd /opt/events-alerts
-git pull
-docker compose up --build -d
-
-# 5. Verify deployment
-docker compose ps
-docker compose logs --tail 50
-```
-
----
-
-## Modifying Queries
-
-All SQL queries are in `queries/` directory. Modify as needed:
-
-### Example: Change Event Criteria
-
-**File**: `queries/EventHotWork.sql`
-
-```sql
--- Original
-WHERE type_id = :type_id
-  AND LOWER(name) LIKE :name_filter
-
--- Modified (add status filter)
-WHERE type_id = :type_id
-  AND LOWER(name) LIKE :name_filter
-  AND status_id = :status_id
-```
-
-After changes:
-```bash
-docker compose up --force-recreate -d
-```
-
----
-
-## Support
-
-### Logs Analysis
-
-```bash
-# Get last hour of activity
-docker compose logs --since 1h | grep -E "RUN STARTED|Email sent|ERROR"
-
-# Count emails sent today
-docker compose logs --since "$(date +%Y-%m-%d)" | grep -c "Email sent successfully"
-
-# Find errors
-docker compose logs | grep -i error | tail -20
-```
-
-### Health Check
-
-```bash
-# Quick status check
-docker compose ps && \
-docker compose logs --tail 5 && \
-ls -lh data/sent_events.json
-```
-
----
-
-## License
-
-MIT
-
-## Contributors
-
-Dr D Skliros
-
----
-
-## Related Documentation
-
-- [Docker Compose Docs](https://docs.docker.com/compose/)
-- [PostgreSQL Connection Strings](https://www.postgresql.org/docs/current/libpq-connect.html)
-- [Python Decouple](https://github.com/henriquebastos/python-decouple)
-- [SQLAlchemy](https://docs.sqlalchemy.org/)
-
----
-
-**Last Updated**: 2025-11-06  
-**Version**: 1.0.0

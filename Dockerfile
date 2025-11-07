@@ -4,13 +4,17 @@ FROM python:3.13-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies needed for psycopg2 and compilation
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Accept build arguments for user ID and group ID
+ARG UID
+ARG GID
 
-# Ste timezone
+# Install system dependencies and create user
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev && rm -rf /var/lib/apt/lists/* \
+    && addgroup --gid $GID appuser \
+    && adduser --disabled-password --gecos "" --uid $UID --gid $GID appuser
+
+# Set timezone
 ENV TZ=Europe/Athens
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -27,11 +31,14 @@ COPY queries/ ./queries/
 COPY media/ ./media/
 COPY tests/ ./tests/
 
-# Create necessary directories
-RUN mkdir -p logs data
+# Create necessary directories and set ownership
+RUN mkdir -p logs data && chown -R appuser:appuser /app
 
 # Set Python to run in unbuffered mode (see logs in real-time)
 ENV PYTHONUNBUFFERED=1
+
+# Switch to non-root user
+USER appuser
 
 # Run with scheduling enabled by default
 CMD ["python", "-m", "src.events_alerts"]

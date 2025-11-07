@@ -1,19 +1,17 @@
 services:
   alerts:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${UID}
+        GID: ${GID}
     container_name: alerts-app
     env_file:
       - .env
-    user: "1000:1000" #"${UID}:${GID}" to run as host user
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
       - ./queries:/app/queries
       - /Users/prominence/.ssh/prominence_user_key_rsa4096:/app/ssh_key:ro
       - /Users/prominence/.ssh/datalab_prominence_prod.pem:/app/ssh_ubuntu_key:ro
-
-    restart: unless-stopped    
-    #
-    # Optional: Run on a schedule using cron-like functionality (scheduler already implemented within python)
-    # Uncomment and modify the command below if you want scheduled execution
-    # command: sh -c "while true; do python src/events_alerts.py && sleep 3600; done"
+    restart: unless-stopped
