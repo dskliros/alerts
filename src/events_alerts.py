@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """
-events_alerts.py
+EVENTS ALERTS SYSTEM
+--------------------
+Developed for Prominence Maritime & Seatraders
+
+Monitors PostgreSQL database for various events (such as hot work permits) 
+and sends email notifications (with potential for Teams chat messages) to company-specific recipients.
+
+Company-specific elements:
+    - Event routing logic
+    - Logo files in media/
+    - SQL queries in queries/
+
 - Connects to PostgreSQL via db_utils
 - Queries events matching specific criteria
 - Sends results as an HTML email
 - Logs to rotating logfile
 - Tracks sent event IDs to prevent duplicate notifications
 """
-
 from src.db_utils import get_db_connection, validate_query_file
 from decouple import config
 from sqlalchemy import text
@@ -1127,7 +1137,7 @@ def run_scheduler():
                     break
 
     logger.info("━" * 60)
-    logger.info("⏹ Scheduler Stopped")
+    logger.info("⏹Scheduler Stopped")
     logger.info("━" * 60)
 
 

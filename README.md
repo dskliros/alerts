@@ -1,5 +1,8 @@
 # Events Alerts System
 
+> **Note**: This system was developed for internal use at **Prominence Maritime** and **Seatraders**.
+> While the code is shared for reference, it contains company-specific configuration and may require significant modifications for other use cases.
+
 **Automated (currently, 7 Nov 2025, email only) notifications for events, defaulting to "Hot Work" Permit Events**
 
 Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configurable in `.env`) and automatically sends notifications to designated recipients (specified in `.env`). Runs continuously with configurable intervals (denoted by `SCHEDULE_FREQUENCY` in `.env`) and prevents duplicate notifications provided a certain number of days (denoted by `REMINDER_FREQUENCY_DAYS` in `.env`) has not passed.
@@ -14,7 +17,7 @@ Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configur
 - SMTP email server credentials (configured in `.env`)
 - SSH access if DB requires SSH Tunnel (configured in `.env`), but not necessary if run from within a remote ubuntu server that has direct DB access
 
-### 1. Close & Setup
+### 1. Clone & Setup
 
 Note: currently, it is the `easy_prod` branch that is being used and updated, not `main`
 ```bash
