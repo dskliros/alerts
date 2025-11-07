@@ -200,4 +200,55 @@ docker compose ps
 docker ps -a
 ```
 
+### Manual Testing
 
+```bash
+# Run test suite
+docker compose run --rm alerts pytest
+
+# Run a specific test
+docker compose run -rm alerts pytest tests/test_tracking.py::test_load_sent_events_with_data -v
+```
+
+### Debugging
+
+```bash
+# Enter container shell
+docker compose exec alerts /bin/bash
+
+# Check environment variables, e.g.,
+docker compose exec alerts env | grep DB_
+
+# Test DB connection
+docker compose exec alerts python -c "from src.db_utils import check_db_connection; print(check_db_connection())"
+```
+
+---
+
+# Testing (currently only 59% coverage)
+
+```bash
+# With coverage report
+docker compose run --rm alerts pytest --cov=src --cov-report=term-missing
+
+# Verbose output
+docker compose run --rm alerts pytest -v
+
+# Stop on first failure
+docker compose run --rm alerts pytest -x
+```
+
+---
+
+## Licence
+
+MIT
+
+## Contributors
+
+Dr D Skliros
+
+---
+
+**Last Updated**: 2025-11-06
+**Version**: 1.0.0
