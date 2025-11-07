@@ -193,13 +193,16 @@ vi .env
 docker compose up --force-recreate -d
 ```
 
-### Check Status
+### Check Status & Healthcheck
 
 ```bash
 # View running containers
 docker compose ps
 
-# Check container health
+# If Status is marked as unhealthy:
+docker inspect --format='{{json .State.Health}}' alerts-app | jq
+
+# Alternative container health check
 docker ps -a
 ```
 

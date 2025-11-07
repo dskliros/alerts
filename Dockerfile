@@ -43,7 +43,8 @@ USER appuser
 # Run with scheduling enabled by default
 CMD ["python", "-m", "src.events_alerts"]
 
-# Optional: Add healthcheck to monitor container
+# Healthcheck to monitor container
 HEALTHCHECK --interval=1h --timeout=10s --start-period=30s --retries=3 \
     CMD test -f /app/logs/events_alerts.log && \
-        test $(find /app/logs/events_alerts.log -mmin -$(( ${SCHEDULE_FREQUENCY:-1} * 60 + 10 )) | wc -l) -eq 1 || exit 1
+        MINUTES=$(python3 -c "print(int(${SCHEDULE_FREQUENCY:-1} * 60 + 10))") && \
+        test $(find /app/logs/events_alerts.log -mmin -${MINUTES} | wc -l) -eq 1 || exit 1
