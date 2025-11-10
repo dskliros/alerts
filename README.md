@@ -1,7 +1,7 @@
 # Events Alerts System
 
 > **Note**: This system was developed for internal use at **Prominence Maritime** and **Seatraders**.
-> While the code is shared for reference, it contains company-specific configuration and may require significant modifications for other use cases.
+> It contains company-specific configuration and may require significant modifications for other use cases.
 
 **Automated (currently, 7 Nov 2025, email only) notifications for events, defaulting to "Hot Work" Permit Events**
 
@@ -15,11 +15,11 @@ Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configur
 - Docker and Docker Compose installed
 - ORCA Core (PostgreSQL) database access (configured in `.env`)
 - SMTP email server credentials (configured in `.env`)
-- SSH access if DB requires SSH Tunnel (configured in `.env`), but not necessary if run from within a remote ubuntu server that has direct DB access
+- SSH access if DB requires SSH Tunnel (configured in `.env`), but not necessary if run from within a remote linux server that has direct DB access
 
 ### 1. Clone & Setup
 
-Note: currently, it is the `easy_prod` branch that is being used and updated, not `main`
+Note: currently, it is the `easy_prod` branch that is being used and updated, **not** `main`
 ```bash
 git clone https://github.com/dskliros/alerts.git
 cd events-alerts
@@ -36,7 +36,7 @@ vi .env
 
 ### 3. Add SSH Keys
 
-Place private SSH keys in project root or update paths in `docker-compose.yml`:
+Place private SSH keys in the user's .ssh folder, e.g. `/home/ubuntu/.ssh`,  or update paths in `docker-compose.yml`:
 ```yaml
 volumes:
     - ~/.ssh/your_key.pem:/app/ssh_key:ro
