@@ -1,11 +1,13 @@
 # Events Alerts System
 
-> **Note**: This system was developed for internal use at **Prominence Maritime** and **Seatraders**.
+> **Note**: This system was developed for internal use at **Prominence Maritime S.A.** and **Seatraders**.
 > It contains company-specific configuration and may require significant modifications for other use cases.
 
-**Automated (currently, 7 Nov 2025, email only) notifications for events, defaulting to "Hot Work" Permit Events**
+## Summary
 
-Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configurable in `.env`) and automatically sends notifications to designated recipients (specified in `.env`). Runs continuously with configurable intervals (denoted by `SCHEDULE_FREQUENCY` in `.env`) and prevents duplicate notifications provided a certain number of days (denoted by `REMINDER_FREQUENCY_DAYS` in `.env`) has not passed.
+**Automated notifications for events, defaulting to "Hot Work" Permit Events**
+
+Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configurable in `.env`) and automatically sends notifications to designated recipients (specified in `.env`). The notifications are currently via email (specified in `.env`, but the groundwork for Teams chat notifications is also in place). The alerts system runs continuously with configurable intervals (denoted by `SCHEDULE_FREQUENCY` in `.env`) and prevents duplicate notifications provided a certain number of days (denoted by `REMINDER_FREQUENCY_DAYS` in `.env`) has not passed.
 
 ---
 
@@ -21,7 +23,7 @@ Monitors ORCA CORE DB for specific events (such as "hot work" permits) (configur
 
 Note: currently, it is the `easy_prod` branch that is being used and updated, **not** `main`
 ```bash
-git clone https://github.com/dskliros/alerts.git
+git clone https://github.com/prominencemaritime/events-alerts.git
 cd events-alerts
 ```
 
@@ -86,21 +88,6 @@ docker compose up --build -d
 ## Project Structure
 ```
 events-alerts/
-├── .git
-│   ├── branches
-│   ├── hooks
-│   ├── info
-│   ├── logs
-│   ├── objects
-│   ├── refs
-│   ├── COMMIT_EDITMSG
-│   ├── FETCH_HEAD
-│   ├── HEAD
-│   ├── ORIG_HEAD
-│   ├── config
-│   ├── description
-│   ├── index
-│   └── packed-refs
 ├── data
 │   └── sent_events.json                    # Tracking sent events
 ├── docs
@@ -256,5 +243,5 @@ Dr D Skliros
 
 ---
 
-**Last Updated**: 2025-11-06
-**Version**: 1.0.0
+**Last Updated**: 2025-11-10
+**Version**: 1.0.1
