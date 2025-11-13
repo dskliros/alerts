@@ -127,6 +127,8 @@ events-alerts/
 └── requirements.txt                        # Python dependencies
 ```
 
+---
+
 ## Common Tasks
 
 ### Rebuild Container from Scratch

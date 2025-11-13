@@ -841,7 +841,7 @@ def main():
                     'lookback_days': EVENT_LOOKBACK_DAYS
                 }
             )
-            logger.info(f"[OK] Construction Successful: found {len(df)} event{'s' if len(df)>1 else ''}.")
+            logger.info(f"[OK] Construction Successful: found {len(df)} event{'s' if len(df)!=1 else ''}.")
 
             # VALIDATION: Ensure query returned expected columns before proceeding
             required_columns = ['id', 'event_name', 'created_at', 'email']
@@ -852,7 +852,7 @@ def main():
             type_and_status = text(type_and_status_sql)
 
             # Execute new type and status query
-            logger.info(f"Extracting 'Event Type' from type_id = {EVENT_TYPE_ID}, and 'Status Name' from status_id = {EVENT_STATUS_ID}")
+            logger.info(f"Extracting 'Event Type' (from type_id = {EVENT_TYPE_ID}), and 'Status Name' (from status_id = {EVENT_STATUS_ID})")
             df_type_and_status = pd.read_sql_query(
                     type_and_status,
                     conn,
