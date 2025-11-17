@@ -538,7 +538,7 @@ Found {len(df)} event(s) matching criteria.
     return text
 
 
-def make_html(df, run_time, df_type_and_status=pd.DataFrame(), has_company_logo=False, has_st_logo=False):
+def make_html(df, run_time, df_type_and_status=pd.DataFrame(), synced_at=None, has_company_logo=False, has_st_logo=False):
     """Generate a rich, dynamically formatted HTML email for events."""
     event_id, event_name = get_event_id_name(type_id=EVENT_TYPE_ID)
 
@@ -844,7 +844,7 @@ def main():
             logger.info(f"[OK] Construction Successful: found {len(df)} event{'s' if len(df)!=1 else ''}.")
 
             # VALIDATION: Ensure query returned expected columns before proceeding
-            required_columns = ['id', 'event_name', 'created_at', 'email']
+            required_columns = ['id', 'event_name', 'created_at', 'synced_at', 'email']
             validate_dataframe_columns(df, required_columns, context="Events query result")
 
             # Load query to extract type_name and status_name from corresponding IDs defined in .env from file
@@ -876,6 +876,12 @@ def main():
             # CRITICAL: Filter out events that have already been sent BEFORE creating company-specific DataFrames
             original_count = len(df)
             df = filter_unsent_events(df, sent_events)
+
+            # Extract the most recent synced_at timestamp for display
+            synced_at_display = None
+            if not df.empty and 'synced_at' in df.columns:
+               # Get the most recent synced_at timestamp
+               synced_at_display = pd.to_datetime(df['synced_at']).max().strftime('%Y-%m-%d %H:%M:%S')
 
             # Format created_at for display (after filtering)
             if not df.empty:
@@ -920,8 +926,8 @@ def main():
             # Check if logos exist for HTML
             has_company_logo = COMPANY_LOGO.exists()
             has_st_logo = ST_COMPANY_LOGO.exists()
-            event_ids, html_content = make_html(df, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-            trimmed_event_ids, trimmed_html_content = make_html(df, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+            event_ids, html_content = make_html(df, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+            trimmed_event_ids, trimmed_html_content = make_html(df, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=False, has_st_logo=False)
 
             # Initialize variables for company-specific content
             event_ids_prominence = []
@@ -934,8 +940,8 @@ def main():
                 logger.info('Generating PROMINENCE email content')
                 subject_prominence = make_subject(len(df_prominence))
                 plain_text_prominence = make_plain_text(df_prominence, run_time)
-                event_ids_prominence, html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-                trimmed_event_ids_prominence, trimmed_html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+                event_ids_prominence, html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+                trimmed_event_ids_prominence, trimmed_html_content_prominence = make_html(df_prominence, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=False, has_st_logo=False)
             else:
                 logger.info("Skipping PROMINENCE email generation - no events")
 
@@ -946,8 +952,8 @@ def main():
                 logger.info('Generating SEATRADERS email content')
                 subject_seatraders = make_subject(len(df_seatraders))
                 plain_text_seatraders = make_plain_text(df_seatraders, run_time)
-                event_ids_seatraders, html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
-                trimmed_event_ids_seatraders, trimmed_html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, has_company_logo=False, has_st_logo=False)
+                event_ids_seatraders, html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=has_company_logo, has_st_logo=has_st_logo)
+                trimmed_event_ids_seatraders, trimmed_html_content_seatraders = make_html(df_seatraders, run_time, df_type_and_status, synced_at=synced_at_display, has_company_logo=False, has_st_logo=False)
             else:
                 logger.info("Skipping SEATRADERS email generation - no events")
 

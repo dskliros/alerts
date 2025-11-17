@@ -2,6 +2,7 @@ SELECT
 	e.id,
 	e.name AS event_name,
 	e.created_at,
+    ed.synced_at,
     es.name AS status,
     v.email AS email
     --v.id AS vessel_id,
