@@ -17,6 +17,6 @@ WHERE
     AND es.id = :status_id
 	AND LOWER(e.name) LIKE :name_filter
     AND LOWER(e.name) NOT LIKE :name_excluded
-	AND e.created_at >= NOW() - INTERVAL '1 day' * :lookback_days
+	AND ed.synced_at >= NOW() - INTERVAL '1 day' * :lookback_days
 ORDER BY
-	e.created_at ASC;
+	ed.synced_at ASC;
